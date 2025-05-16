@@ -50,7 +50,16 @@ local function verify_stale_conditions(res, token)
     end
 
     -- Get request header tokens
-    local req_cc = ngx_req_get_headers()["Cache-Control"]
+    local ngx_headers = ngx_req_get_headers()
+
+    -- If the 'x-revalidate' header is in the ngx headers, then we are revalidating the content.
+    -- so that means we can't return stale content.
+    req_reval = ngx_headers["X-Revalidate"]
+    if req_reval then
+      return false
+    end
+
+    local req_cc = ngx_headers["Cache-Control"]
     local req_cc_stale = get_numeric_header_token(req_cc, token)
     local req_cc_max_age = get_numeric_header_token(req_cc, "max-age")
     local req_cc_max_stale = get_numeric_header_token(req_cc, "max-stale")

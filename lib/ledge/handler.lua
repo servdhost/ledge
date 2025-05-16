@@ -12,6 +12,8 @@ local ngx_INFO = ngx.INFO
 local ngx_var = ngx.var
 local ngx_null = ngx.null
 
+local cjson_encode = require("cjson").encode
+
 local ngx_flush = ngx.flush
 local ngx_print = ngx.print
 
@@ -551,6 +553,12 @@ local function revalidation_data(self)
         reval_headers["Cookie"] = h["Cookie"]
     end
 
+    -- Always set a 'x-revalidate' header when doing a revalidation request.
+    reval_headers["X-Revalidate"] = true
+
+    ngx_log(ngx_ERR, "in revalidation_data:: revalidation params  : " .. cjson_encode(reval_params))
+    ngx_log(ngx_ERR, "in revalidation_data:: revalidation headers : " .. cjson_encode(reval_headers))
+
     emit(self, "before_save_revalidation_data", reval_params, reval_headers)
 
     return reval_params, reval_headers
@@ -933,6 +941,9 @@ local function serve(self)
         -- fetched.
         local state_history = self.state_machine.state_history
         local event_history = self.state_machine.event_history
+
+        ngx_log(ngx_ERR, "in serve:: state_history:" .. cjson_encode(state_history))
+        ngx_log(ngx_ERR, "in serve:: event_history:" .. cjson_encode(event_history))
 
         if not event_history["response_not_cacheable"] then
             local x_cache = "HIT from " .. name
