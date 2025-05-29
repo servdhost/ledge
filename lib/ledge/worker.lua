@@ -46,7 +46,12 @@ local function run(self)
 
     -- Runs around job exectution, to instantiate necessary connections
     ql_worker.middleware = function(job)
-        job.redis = ledge.create_redis_connection()
+        redis, err = ledge.create_redis_connection()
+        if not redis then
+            return nil, 'qless redis connection error', err
+        end
+
+        job.redis = redis
 
         co_yield()  -- Perform the job
 
