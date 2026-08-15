@@ -296,6 +296,30 @@ end
 _M.set_vary_spec = set_vary_spec
 
 
+-- Schedules cleanup of a cache entity's storage keys, e.g. after finding
+-- them missing (evicted) while the cache metadata still references them.
+local function schedule_entity_collection(self, res)
+    local config = self.config
+    return put_background_job(
+        "ledge_gc",
+        "ledge.jobs.collect_entity",
+        {
+            entity_id = res.entity_id,
+            storage_driver = config.storage_driver,
+            storage_driver_config = config.storage_driver_config,
+        },
+        {
+            delay = gc_wait(
+                res.size,
+                config.minimum_old_entity_download_rate
+            ),
+            tags = { "collect_entity" },
+            priority = 10,
+        }
+    )
+end
+
+
 local function read_from_cache(self)
     local res, err = response.new(self)
     if not res then return nil, err end
@@ -317,28 +341,32 @@ local function read_from_cache(self)
         -- Check storage has the entity, if not presume it has been evitcted
         -- and clean up
         if not storage:exists(res.entity_id) then
-            local config = self.config
-            put_background_job(
-                "ledge_gc",
-                "ledge.jobs.collect_entity",
-                {
-                    entity_id = res.entity_id,
-                    storage_driver = config.storage_driver,
-                    storage_driver_config = config.storage_driver_config,
-                },
-                {
-                    delay = gc_wait(
-                        res.size,
-                        config.minimum_old_entity_download_rate
-                    ),
-                    tags = { "collect_entity" },
-                    priority = 10,
-                }
+            ngx_log(ngx_WARN,
+                "entity ", res.entity_id, " missing from storage ",
+                "(likely evicted); treating as a cache miss"
             )
+            schedule_entity_collection(self, res)
             return {} -- MISS
         end
 
-        res:filter_body_reader("cache_body_reader", storage:get_reader(res))
+        -- storage:exists() above and get_reader() here are two separate
+        -- round trips to Redis, so under eviction pressure the entity can
+        -- still vanish in between. get_reader() re-checks and returns nil
+        -- if so - without this, we'd hand a reader that yields zero chunks
+        -- to filter_body_reader(), and silently serve an empty body with
+        -- headers already committed to the client.
+        local reader, reader_err = storage:get_reader(res)
+        if not reader then
+            ngx_log(ngx_WARN,
+                "entity ", res.entity_id, " vanished from storage between ",
+                "the existence check and read (", tostring(reader_err),
+                "); treating as a cache miss"
+            )
+            schedule_entity_collection(self, res)
+            return {} -- MISS
+        end
+
+        res:filter_body_reader("cache_body_reader", reader)
     end
 
     emit(self, "after_cache_read", res)
