@@ -36,7 +36,7 @@ Moreover, it is particularly suited to applications where the origin is expensiv
 * [Handler configuration options](#handler-configuration-options)
 * [Events](#events)
 * [Administration](#administration)
-    * [Managing Qless](#managing-qless)
+    * [Managing Background Jobs](#managing-background-jobs)
 * [Licence](#licence)
 
 
@@ -62,7 +62,6 @@ This will install the latest stable release, and all other Lua module dependenci
 
 * [lua-resty-http](https://github.com/pintsized/lua-resty-http)
 * [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector)
-* [lua-resty-qless](https://github.com/pintsized/lua-resty-qless)
 * [lua-resty-cookie](https://github.com/cloudflare/lua-resty-cookie)
 * [lua-ffi-zlib](https://github.com/hamishforbes/lua-ffi-zlib)
 * [lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream) *(optional, for load balancing / healthchecking upstreams)*
@@ -291,7 +290,7 @@ There are three purge modes, selectable by setting the `X-Purge` request header 
 ```json
 {
   "purge_mode": "revalidate",
-  "qless_job": {
+  "background_jobs": {
     "options": {
       "priority": 4,
       "jid": "5eeabecdc75571d1b93e9c942dfcebcb",
@@ -306,7 +305,7 @@ There are three purge modes, selectable by setting the `X-Purge` request header 
 }
 ```
 
-Background revalidation jobs can be tracked in the qless metadata. See [managing qless](#managing-qless) for more information.
+Background revalidation jobs can be tracked via their `jid`. See [managing background jobs](#managing-background-jobs) for more information.
 
 In general, `PURGE` is considered an administration task and probably shouldn't be allowed from the internet. Consider limiting it by IP address for example:
 
@@ -360,7 +359,7 @@ In addition, the `X-Purge` mode will propagate to all URIs purged as a result of
 ```json
 {
   "purge_mode": "revalidate",
-  "qless_job": {
+  "background_jobs": {
     "options": {
       "priority": 5,
       "jid": "b2697f7cb2e856cbcad1f16682ee20b0",
@@ -561,7 +560,7 @@ init_by_lua_block {
         redis_connector_params = {
             url = "redis://mypassword@127.0.0.1:6380/3",
         }
-        qless_db = 4,
+        jobs_db = 4,
     })
 }
 ```
@@ -578,11 +577,11 @@ init_by_lua_block {
 Ledge uses [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector) to handle all Redis connections. It simply passes anything given in `redis_connector_params` straight to [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector), so review the documentation there for options, including how to use [Redis Sentinel](https://redis.io/topics/sentinel).
 
 
-#### qless_db
+#### jobs_db
 
 `default: 1`
 
-Specifies the Redis DB number to store [qless](https://github.com/pintsized/lua-resty-qless) background job data.
+Specifies the Redis DB number used to store background job queue data (see [managing background jobs](#managing-background-jobs)), kept separate from cache `metadata`.
 
 [Back to TOC](#table-of-contents)
 
@@ -635,7 +634,7 @@ syntax: `local worker = ledge.create_worker(config)`
 
 Creates a `worker` instance inside the current Nginx worker process, for processing background jobs. You only need to call this once inside a single `init_worker` block, and it will be called for each Nginx worker that is configured.
 
-Job queues can be run at varying amounts of concurrency per worker, which can be set by providing `config` here. See [managing qless](#managing-qless) for more details.
+Job queues can be run at varying amounts of concurrency per worker, which can be set by providing `config` here. See [managing background jobs](#managing-background-jobs) for more details.
 
 ```lua
 init_worker_by_lua_block {
@@ -644,9 +643,16 @@ init_worker_by_lua_block {
         gc_queue_concurrency = 1,
         purge_queue_concurrency = 2,
         revalidate_queue_concurrency = 5,
+        job_timeout = 60,
+        max_retries = 5,
     }):run()
 }
 ```
+
+* `interval`: seconds to wait between polls of an empty queue.
+* `*_queue_concurrency`: number of jobs from that queue to process concurrently per Nginx worker process.
+* `job_timeout`: seconds a job may run before its lease is considered expired and it becomes eligible for another worker to reclaim it (long-running jobs must heartbeat within this window - see `ledge.jobs.purge` for an example).
+* `max_retries`: number of times a failed job is retried before being marked permanently failed.
 
 [Back to TOC](#table-of-contents)
 
@@ -1350,17 +1356,23 @@ Will give log lines such as:
 [Back to TOC](#table-of-contents)
 
 
-### Managing Qless
+### Managing Background Jobs
 
-Ledge uses [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) to schedule and process background tasks, which are stored in Redis.
+Ledge schedules and processes background jobs using its own lightweight Redis-native queue (see [jobs_db](#jobs_db) and [ledge.create_worker](#ledgecreate_worker)) - jobs are stored as plain Redis lists, sorted sets and hashes under the `ledge:jobs:*` key namespace in `jobs_db`, requiring no additional dependencies.
 
 Jobs are scheduled for background revalidation requests as well as wildcard PURGE requests, but most importantly for garbage collection of replaced body entities.
 
 That is, it's very important that jobs are being run properly and in a timely fashion.
 
-Installing the [web user interface](https://github.com/hamishforbes/lua-resty-qless-web) can be very helpful to check this.
+There's no web UI equivalent to inspect queues, but you can check on things directly with `redis-cli` against `jobs_db`, for example:
 
-You may also wish to tweak the [qless job history](https://github.com/pintsized/lua-resty-qless#configuration-options) settings if it takes up too much space.
+```
+$> redis-cli -n <jobs_db> llen ledge:jobs:ledge_gc:ready       # jobs waiting to run
+$> redis-cli -n <jobs_db> zcard ledge:jobs:ledge_gc:running    # jobs currently in progress
+$> redis-cli -n <jobs_db> scard ledge:jobs:failed              # jobs that gave up after max_retries
+```
+
+A job's own record (`ledge:jobs:job:<jid>`) is a hash you can inspect with `hgetall`, including its `state` (`waiting`, `running`, `complete` or `failed`). Completed jobs are kept briefly (60 seconds) before expiring; permanently failed jobs are kept for an hour.
 
 
 [Back to TOC](#table-of-contents)

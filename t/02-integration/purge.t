@@ -184,11 +184,11 @@ PURGE /purge_cached*
 [error]
 --- response_body_like
 purge_mode: invalidate
-qless_jobs.1.jid: [a-f0-9]{32}
-qless_jobs.1.klass: ledge.jobs.purge
-qless_jobs.1.options.jid: [a-f0-9]{32}
-qless_jobs.1.options.priority: 5
-qless_jobs.1.options.tags.1: purge
+background_jobs.1.jid: [a-f0-9]{32}
+background_jobs.1.klass: ledge.jobs.purge
+background_jobs.1.options.jid: [a-f0-9]{32}
+background_jobs.1.options.priority: 5
+background_jobs.1.options.tags.1: purge
 result: scheduled
 --- error_code: 200
 
@@ -261,11 +261,11 @@ PURGE /purge_c*
 --- error_code: 200
 --- response_body_like
 purge_mode: invalidate
-qless_jobs.1.jid: [a-f0-9]{32}
-qless_jobs.1.klass: ledge.jobs.purge
-qless_jobs.1.options.jid: [a-f0-9]{32}
-qless_jobs.1.options.priority: 5
-qless_jobs.1.options.tags.1: purge
+background_jobs.1.jid: [a-f0-9]{32}
+background_jobs.1.klass: ledge.jobs.purge
+background_jobs.1.options.jid: [a-f0-9]{32}
+background_jobs.1.options.priority: 5
+background_jobs.1.options.tags.1: purge
 --- no_error_log
 [error]
 
@@ -334,11 +334,11 @@ PURGE /purge_ca*ed
 [error]
 --- response_body_like
 purge_mode: invalidate
-qless_jobs.1.jid: [a-f0-9]{32}
-qless_jobs.1.klass: ledge.jobs.purge
-qless_jobs.1.options.jid: [a-f0-9]{32}
-qless_jobs.1.options.priority: 5
-qless_jobs.1.options.tags.1: purge
+background_jobs.1.jid: [a-f0-9]{32}
+background_jobs.1.klass: ledge.jobs.purge
+background_jobs.1.options.jid: [a-f0-9]{32}
+background_jobs.1.options.priority: 5
+background_jobs.1.options.tags.1: purge
 result: scheduled
 --- error_code: 200
 
@@ -406,11 +406,11 @@ PURGE /purge_cached_8*
 [error]
 --- response_body_like
 purge_mode: invalidate
-qless_jobs.1.jid: [a-f0-9]{32}
-qless_jobs.1.klass: ledge.jobs.purge
-qless_jobs.1.options.jid: [a-f0-9]{32}
-qless_jobs.1.options.priority: 5
-qless_jobs.1.options.tags.1: purge
+background_jobs.1.jid: [a-f0-9]{32}
+background_jobs.1.klass: ledge.jobs.purge
+background_jobs.1.options.jid: [a-f0-9]{32}
+background_jobs.1.options.priority: 5
+background_jobs.1.options.tags.1: purge
 result: scheduled
 --- error_code: 200
 
@@ -493,11 +493,11 @@ PURGE /purge_cached_9_prx
 [error]
 --- response_body_like
 purge_mode: revalidate
-qless_jobs.1.jid: [a-f0-9]{32}
-qless_jobs.1.klass: ledge.jobs.revalidate
-qless_jobs.1.options.jid: [a-f0-9]{32}
-qless_jobs.1.options.priority: 4
-qless_jobs.1.options.tags.1: revalidate
+background_jobs.1.jid: [a-f0-9]{32}
+background_jobs.1.klass: ledge.jobs.revalidate
+background_jobs.1.options.jid: [a-f0-9]{32}
+background_jobs.1.options.priority: 4
+background_jobs.1.options.tags.1: revalidate
 result: purged
 --- error_code: 200
 
@@ -601,11 +601,11 @@ PURGE /purge_cached_10_prx?*
 [error]
 --- response_body_like
 purge_mode: revalidate
-qless_jobs.1.jid: [a-f0-9]{32}
-qless_jobs.1.klass: ledge.jobs.purge
-qless_jobs.1.options.jid: [a-f0-9]{32}
-qless_jobs.1.options.priority: 5
-qless_jobs.1.options.tags.1: purge
+background_jobs.1.jid: [a-f0-9]{32}
+background_jobs.1.klass: ledge.jobs.purge
+background_jobs.1.options.jid: [a-f0-9]{32}
+background_jobs.1.options.priority: 5
+background_jobs.1.options.tags.1: purge
 result: scheduled
 --- error_log
 TEST 10 Revalidated: 1 primed
@@ -739,11 +739,11 @@ PURGE /purge_cached_12_prx?*
 [error]
 --- response_body_like
 purge_mode: delete
-qless_jobs.1.jid: [a-f0-9]{32}
-qless_jobs.1.klass: ledge.jobs.purge
-qless_jobs.1.options.jid: [a-f0-9]{32}
-qless_jobs.1.options.priority: 5
-qless_jobs.1.options.tags.1: purge
+background_jobs.1.jid: [a-f0-9]{32}
+background_jobs.1.klass: ledge.jobs.purge
+background_jobs.1.options.jid: [a-f0-9]{32}
+background_jobs.1.options.priority: 5
+background_jobs.1.options.tags.1: purge
 result: scheduled
 --- error_code: 200
 
@@ -856,11 +856,11 @@ PURGE /purge_cached_13_prx?*
 TEST 13 Revalidated: 2 primed
 --- response_body_like
 purge_mode: revalidate
-qless_jobs.1.jid: [a-f0-9]{32}
-qless_jobs.1.klass: ledge.jobs.purge
-qless_jobs.1.options.jid: [a-f0-9]{32}
-qless_jobs.1.options.priority: 5
-qless_jobs.1.options.tags.1: purge
+background_jobs.1.jid: [a-f0-9]{32}
+background_jobs.1.klass: ledge.jobs.purge
+background_jobs.1.options.jid: [a-f0-9]{32}
+background_jobs.1.options.priority: 5
+background_jobs.1.options.tags.1: purge
 result: scheduled
 --- error_code: 200
 
@@ -974,11 +974,11 @@ qq(PURGE /purge_api
 "TEST 15: 1", "TEST 15: 2",
 
 qq(purge_mode: invalidate
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.qless_jobs.1.jid: [a-f0-9]{32}
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.qless_jobs.1.klass: ledge.jobs.purge
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.qless_jobs.1.options.jid: [a-f0-9]{32}
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.qless_jobs.1.options.priority: 5
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.qless_jobs.1.options.tags.1: purge
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.background_jobs.1.jid: [a-f0-9]{32}
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.background_jobs.1.klass: ledge.jobs.purge
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.background_jobs.1.options.jid: [a-f0-9]{32}
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.background_jobs.1.options.priority: 5
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.background_jobs.1.options.tags.1: purge
 result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.result: scheduled
 ),
 ]
@@ -1063,11 +1063,11 @@ qq(PURGE /purge_api
 "TEST 16: 1", "TEST 16: 2",
 
 qq(purge_mode: invalidate
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.qless_jobs.1.jid: [a-f0-9]{32}
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.qless_jobs.1.klass: ledge.jobs.purge
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.qless_jobs.1.options.jid: [a-f0-9]{32}
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.qless_jobs.1.options.priority: 5
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.qless_jobs.1.options.tags.1: purge
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.background_jobs.1.jid: [a-f0-9]{32}
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.background_jobs.1.klass: ledge.jobs.purge
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.background_jobs.1.options.jid: [a-f0-9]{32}
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.background_jobs.1.options.priority: 5
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.background_jobs.1.options.tags.1: purge
 result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.result: scheduled
 ),
 ]
@@ -1209,11 +1209,11 @@ qq(PURGE /purge_api
 "TEST 17: 1",
 
 qq(purge_mode: revalidate
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.qless_jobs.1.jid: [a-f0-9]{32}
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.qless_jobs.1.klass: ledge.jobs.revalidate
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.qless_jobs.1.options.jid: [a-f0-9]{32}
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.qless_jobs.1.options.priority: 4
-result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.qless_jobs.1.options.tags.1: revalidate
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.background_jobs.1.jid: [a-f0-9]{32}
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.background_jobs.1.klass: ledge.jobs.revalidate
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.background_jobs.1.options.jid: [a-f0-9]{32}
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.background_jobs.1.options.priority: 4
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.background_jobs.1.options.tags.1: revalidate
 result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.result: purged
 ),
 

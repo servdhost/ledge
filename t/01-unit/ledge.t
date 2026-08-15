@@ -4,7 +4,7 @@ use lib "$FindBin::Bin/..";
 use LedgeEnv;
 
 our $HttpConfig = LedgeEnv::http_config(extra_lua_config => qq{
-    qless_db = $LedgeEnv::redis_qless_database
+    jobs_db = $LedgeEnv::redis_jobs_database
 });
 
 no_long_string();
@@ -48,7 +48,7 @@ GET /ledge_2
 === TEST 3: Non existent params cannot be set
 --- http_config eval
 qq {
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;;";
 init_by_lua_block {
     if $LedgeEnv::test_coverage == 1 then
         require("luacov.runner").init()
@@ -73,7 +73,7 @@ GET /ledge_3
 --- config
 location /ledge_4 {
     content_by_lua_block {
-        require("ledge").configure({ qless_db = 4 })
+        require("ledge").configure({ jobs_db = 4 })
     }
 }
 --- request
@@ -112,7 +112,7 @@ dog
 === TEST 6: Create bad redis connection
 --- http_config eval
 qq{
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;;";
 
 init_by_lua_block {
     if $LedgeEnv::test_coverage == 1 then
@@ -162,7 +162,7 @@ false
 === TEST 8: Create bad storage connection
 --- http_config eval
 qq{
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;;";
 
 init_by_lua_block {
     if $LedgeEnv::test_coverage == 1 then
@@ -189,13 +189,13 @@ GET /ledge_8
 --- error_log eval: qr/connect\(\)( to 127.0.0.1:0)? failed/
 
 
-=== TEST 9: Create qless connection
+=== TEST 9: Create jobs connection
 --- http_config eval: $::HttpConfig
 --- config
 location /ledge_9 {
     content_by_lua_block {
-        local redis = assert(require("ledge").create_qless_connection(),
-            "create_qless_connection() should return positively")
+        local redis = assert(require("ledge").create_jobs_connection(),
+            "create_jobs_connection() should return positively")
 
         assert(redis:set("ledge_9:cat", "dog"),
             "redis:set() should return positively")
@@ -204,7 +204,7 @@ location /ledge_9 {
             "close_redis_connection() should return positively")
 
         local redis = require("ledge").create_redis_connection()
-        assert(redis:select(qless_db), "select() shoudl return positively")
+        assert(redis:select(jobs_db), "select() shoudl return positively")
 
         local val, err = redis:get("ledge_9:cat")
         ngx.say(val)
@@ -223,7 +223,7 @@ dog
 === TEST 10: Bad redis-connector params are caught
 --- http_config eval
 qq{
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;;";
 
 init_by_lua_block {
     if $LedgeEnv::test_coverage == 1 then
@@ -254,9 +254,9 @@ location /ledge_10 {
         assert(ok == nil and err ~= nil,
             "create_storage_connection() should return negatively with error")
 
-        local ok, err = require("ledge").create_qless_connection()
+        local ok, err = require("ledge").create_jobs_connection()
         assert(ok == nil and err ~= nil,
-            "create_qless_connection() should return negatively with error")
+            "create_jobs_connection() should return negatively with error")
 
         local ok, err = require("ledge").create_redis_slave_connection()
         assert(ok == nil and err ~= nil,

@@ -251,7 +251,7 @@ local function clean_repset(redis, repset)
     -- This only runs on the slow path at save time so should be ok?
     -- Prevents this set from growing perpetually if there are unique variations
     -- TODO use scan here incase the set is pathologically huge?
-    -- Has to be able to run in a transaction so maybe a housekeeping qless job?
+    -- Has to be able to run in a transaction so maybe a housekeeping background job?
     local clean = [[
     local repset = KEYS[1]
     local reps = redis.call("SMEMBERS", repset)

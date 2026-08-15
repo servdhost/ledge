@@ -10,7 +10,7 @@ our $test_coverage = $ENV{TEST_COVERAGE} || 0;
 our $redis_host = $ENV{TEST_LEDGE_REDIS_HOST} || '127.0.0.1';
 our $redis_port = $ENV{TEST_LEDGE_REDIS_PORT} || 6379;
 our $redis_database = $ENV{TEST_LEDGE_REDIS_DATABASE} || 2;
-our $redis_qless_database = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} || 3;
+our $redis_jobs_database = $ENV{TEST_LEDGE_REDIS_JOBS_DATABASE} || 3;
 
 sub http_config {
     my $extra_nginx_config = "";
@@ -50,7 +50,7 @@ sub http_config {
 
             require("ledge").configure({
                 redis_connector_params = { url = REDIS_URL },
-                qless_db = $redis_qless_database,
+                jobs_db = $redis_jobs_database,
             })
 
             require("ledge").set_handler_defaults({
