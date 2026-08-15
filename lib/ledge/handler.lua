@@ -810,10 +810,17 @@ local function save_to_cache(self, res)
                         ngx_log(ngx_ERR, "failed to cleanup storage: ", e)
                     end
                 end
-            elseif previous_entity_id then
-                -- Everything has completed and we have an old entity
-                -- Schedule GC to clean it up
-                put_background_job(unpack(gc_job_spec))
+            else
+                -- Transaction committed - now safe to run against a live
+                -- (non-transactional) connection.
+                local _, e = ledge_cache_key.clean_repset(redis, key_chain.repset)
+                if e then ngx_log(ngx_ERR, e) end
+
+                if previous_entity_id then
+                    -- Everything has completed and we have an old entity
+                    -- Schedule GC to clean it up
+                    put_background_job(unpack(gc_job_spec))
+                end
             end
         end
 
@@ -844,10 +851,17 @@ local function save_to_cache(self, res)
         local ok, e = redis:exec()
         if not ok or ok == ngx_null then
             ngx_log(ngx_ERR, "failed to complete transaction: ", e)
-        elseif previous_entity_id then
-            -- Everything has completed and we have an old entity
-            -- Schedule GC to clean it up
-            put_background_job(unpack(gc_job_spec))
+        else
+            -- Transaction committed - now safe to run against a live
+            -- (non-transactional) connection.
+            local _, e = ledge_cache_key.clean_repset(redis, key_chain.repset)
+            if e then ngx_log(ngx_ERR, e) end
+
+            if previous_entity_id then
+                -- Everything has completed and we have an old entity
+                -- Schedule GC to clean it up
+                put_background_job(unpack(gc_job_spec))
+            end
         end
     end
     return true

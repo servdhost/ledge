@@ -246,29 +246,40 @@ end
 _M.key_chain = key_chain
 
 
+-- Ensure representation set only includes keys which actually exist.
+-- Prevents this set from growing perpetually if there are unique variations.
+-- This only runs on the slow path at save time so should be ok?
+-- TODO use scan here incase the set is pathologically huge?
+--
+-- This used to be a single EVAL script for atomicity, but the "<rep>::main"
+-- keys it needs to check aren't known until SMEMBERS has actually run, so
+-- they can't be statically declared via KEYS/numkeys. Real Redis doesn't
+-- enforce that scripts only touch declared keys, but Redis-compatible
+-- servers with a stricter/sharded execution model (e.g. DragonflyDB) do,
+-- and reject this. Plain round trips instead - which means this must be
+-- called against a live (non-transactional) connection, not from inside an
+-- active MULTI, since it needs to read SMEMBERS and branch on it there and
+-- then. Callers should call this once their own transaction (if any) has
+-- been committed.
 local function clean_repset(redis, repset)
-    -- Ensure representation set only includes keys which actually exist
-    -- This only runs on the slow path at save time so should be ok?
-    -- Prevents this set from growing perpetually if there are unique variations
-    -- TODO use scan here incase the set is pathologically huge?
-    -- Has to be able to run in a transaction so maybe a housekeeping background job?
-    local clean = [[
-    local repset = KEYS[1]
-    local reps = redis.call("SMEMBERS", repset)
-    for _, rep in ipairs(reps) do
-        if redis.call("EXISTS", rep.."::main") == 0 then
-            redis.call("SREM", repset, rep)
-        end
-    end
-    ]]
-
-    local res, err = redis:eval(clean, 1, repset)
-    if not res or res == ngx_null then
+    local reps, err = redis:smembers(repset)
+    if not reps or reps == ngx_null then
         return nil, err
+    end
+
+    for _, rep in ipairs(reps) do
+        local exists, e = redis:exists(rep .. "::main")
+        if e then
+            ngx_log(ngx_ERR, e)
+        elseif exists == 0 then
+            local _, e = redis:srem(repset, rep)
+            if e then ngx_log(ngx_ERR, e) end
+        end
     end
 
     return true
 end
+_M.clean_repset = clean_repset
 
 
 local function save_key_chain(redis, key_chain, ttl)
@@ -311,9 +322,13 @@ local function save_key_chain(redis, key_chain, ttl)
     local _, e = redis:expire(key_chain.repset, ttl)
     if e then ngx_log(ngx_ERR, e) end
 
-
-    local _, e = clean_repset(redis, key_chain.repset)
-    if e then ngx_log(ngx_ERR, e) end
+    -- NOTE: clean_repset() is deliberately not called here. save_key_chain()
+    -- runs inside the caller's active MULTI transaction (see handler.lua's
+    -- save_to_cache), where commands are queued and their results aren't
+    -- available until EXEC - but clean_repset() needs to read SMEMBERS and
+    -- branch on it there and then, which only works against a live
+    -- (non-transactional) connection. Callers should call clean_repset()
+    -- themselves once their transaction has been committed.
 
     return true
 end
