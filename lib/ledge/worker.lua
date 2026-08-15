@@ -164,15 +164,19 @@ local function run(self)
         { name = "ledge_revalidate", concurrency = self.config.revalidate_queue_concurrency },
     }
 
+    -- Lanes start after a short delay rather than immediately: this is the
+    -- init_worker phase, so nothing is waiting on a job to be picked up yet,
+    -- and it avoids a burst of simultaneous Redis connection attempts as
+    -- every Nginx worker process starts up at once.
     for _, queue in ipairs(queues) do
         for _ = 1, queue.concurrency do
-            local ok, err = ngx_timer_at(0, runner_loop, self, queue.name)
+            local ok, err = ngx_timer_at(1, runner_loop, self, queue.name)
             if not ok then
                 ngx_log(ngx_ERR, "failed to start worker: ", tostring(err))
             end
         end
 
-        local ok, err = ngx_timer_at(0, scheduler_loop, self, queue.name)
+        local ok, err = ngx_timer_at(1, scheduler_loop, self, queue.name)
         if not ok then
             ngx_log(ngx_ERR, "failed to start scheduler: ", tostring(err))
         end

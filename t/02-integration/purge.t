@@ -183,12 +183,12 @@ PURGE /purge_cached*
 --- no_error_log
 [error]
 --- response_body_like
-purge_mode: invalidate
 background_jobs.1.jid: [a-f0-9]{32}
 background_jobs.1.klass: ledge.jobs.purge
 background_jobs.1.options.jid: [a-f0-9]{32}
 background_jobs.1.options.priority: 5
 background_jobs.1.options.tags.1: purge
+purge_mode: invalidate
 result: scheduled
 --- error_code: 200
 
@@ -260,12 +260,12 @@ PURGE /purge_c*
 --- wait: 3
 --- error_code: 200
 --- response_body_like
-purge_mode: invalidate
 background_jobs.1.jid: [a-f0-9]{32}
 background_jobs.1.klass: ledge.jobs.purge
 background_jobs.1.options.jid: [a-f0-9]{32}
 background_jobs.1.options.priority: 5
 background_jobs.1.options.tags.1: purge
+purge_mode: invalidate
 --- no_error_log
 [error]
 
@@ -333,12 +333,12 @@ PURGE /purge_ca*ed
 --- no_error_log
 [error]
 --- response_body_like
-purge_mode: invalidate
 background_jobs.1.jid: [a-f0-9]{32}
 background_jobs.1.klass: ledge.jobs.purge
 background_jobs.1.options.jid: [a-f0-9]{32}
 background_jobs.1.options.priority: 5
 background_jobs.1.options.tags.1: purge
+purge_mode: invalidate
 result: scheduled
 --- error_code: 200
 
@@ -405,12 +405,12 @@ PURGE /purge_cached_8*
 --- no_error_log
 [error]
 --- response_body_like
-purge_mode: invalidate
 background_jobs.1.jid: [a-f0-9]{32}
 background_jobs.1.klass: ledge.jobs.purge
 background_jobs.1.options.jid: [a-f0-9]{32}
 background_jobs.1.options.priority: 5
 background_jobs.1.options.tags.1: purge
+purge_mode: invalidate
 result: scheduled
 --- error_code: 200
 
@@ -492,12 +492,12 @@ PURGE /purge_cached_9_prx
 --- no_error_log
 [error]
 --- response_body_like
-purge_mode: revalidate
 background_jobs.1.jid: [a-f0-9]{32}
 background_jobs.1.klass: ledge.jobs.revalidate
 background_jobs.1.options.jid: [a-f0-9]{32}
 background_jobs.1.options.priority: 4
 background_jobs.1.options.tags.1: revalidate
+purge_mode: revalidate
 result: purged
 --- error_code: 200
 
@@ -600,12 +600,12 @@ PURGE /purge_cached_10_prx?*
 --- no_error_log
 [error]
 --- response_body_like
-purge_mode: revalidate
 background_jobs.1.jid: [a-f0-9]{32}
 background_jobs.1.klass: ledge.jobs.purge
 background_jobs.1.options.jid: [a-f0-9]{32}
 background_jobs.1.options.priority: 5
 background_jobs.1.options.tags.1: purge
+purge_mode: revalidate
 result: scheduled
 --- error_log
 TEST 10 Revalidated: 1 primed
@@ -738,12 +738,12 @@ PURGE /purge_cached_12_prx?*
 --- no_error_log
 [error]
 --- response_body_like
-purge_mode: delete
 background_jobs.1.jid: [a-f0-9]{32}
 background_jobs.1.klass: ledge.jobs.purge
 background_jobs.1.options.jid: [a-f0-9]{32}
 background_jobs.1.options.priority: 5
 background_jobs.1.options.tags.1: purge
+purge_mode: delete
 result: scheduled
 --- error_code: 200
 
@@ -855,12 +855,12 @@ PURGE /purge_cached_13_prx?*
 --- error_log
 TEST 13 Revalidated: 2 primed
 --- response_body_like
-purge_mode: revalidate
 background_jobs.1.jid: [a-f0-9]{32}
 background_jobs.1.klass: ledge.jobs.purge
 background_jobs.1.options.jid: [a-f0-9]{32}
 background_jobs.1.options.priority: 5
 background_jobs.1.options.tags.1: purge
+purge_mode: revalidate
 result: scheduled
 --- error_code: 200
 
