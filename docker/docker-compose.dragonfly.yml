@@ -1,0 +1,13 @@
+# Overrides docker-compose.yml's redis service to run tests against
+# DragonflyDB instead, to catch Redis/DragonflyDB compatibility regressions
+# (e.g. Lua scripting differences, SCAN cursor handling).
+#
+# Usage (from the repo root):
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.dragonfly.yml run --rm test
+#
+# Or use test-compat.sh, which runs the suite against both backends.
+
+services:
+    redis:
+        image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+        command: ["--logtostderr"]
