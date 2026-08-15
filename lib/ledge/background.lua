@@ -3,7 +3,7 @@ local math_ceil = math.ceil
 local job_queue = require("ledge.job_queue")
 
 local _M = {
-    _VERSION = "2.3.0",
+    _VERSION = "2.4.0",
 }
 
 -- If options.jid is given (i.e. a non-random jid), putting this job will
