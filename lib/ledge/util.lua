@@ -30,7 +30,7 @@ if not ok then ngx.log(ngx.ERR, err) end
 
 
 local _M = {
-    _VERSION = "2.3.0",
+    _VERSION = "2.4.0",
     string = {},
     table = {},
     mt = {},

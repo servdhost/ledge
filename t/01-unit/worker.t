@@ -97,16 +97,17 @@ GET /worker_5
 --- config
 location /worker_6 {
     content_by_lua_block {
-        local qless = assert(require("resty.qless").new({
-            get_redis_client = require("ledge").create_qless_connection
-        }))
+        local job_queue = require("ledge.job_queue")
+        local redis = assert(require("ledge").create_jobs_connection())
 
-        local jid = assert(qless.queues["ledge_gc"]:put("ledge.job.test"))
+        local job = assert(job_queue.put(redis, "ledge_gc", "ledge.job.test", {}, {}))
 
         ngx.sleep(2)
         ngx.say(foo)
-        local job = qless.jobs:get(jid)
-        ngx.say(job.state)
+        local record = job_queue.get(redis, job.jid)
+        ngx.say(record.state)
+
+        require("ledge").close_redis_connection(redis)
     }
 }
 --- request

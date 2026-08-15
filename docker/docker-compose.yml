@@ -1,0 +1,26 @@
+# Local development test runner - builds OpenResty + this repo's Lua
+# dependencies from scratch (see Dockerfile), rather than relying on the
+# prebuilt ledgetech/test-runner image used by docker/tests (CI).
+#
+# Usage (from the repo root):
+#   docker compose -f docker/docker-compose.yml run --rm test
+#   docker compose -f docker/docker-compose.yml run --rm test make coverage
+#   docker compose -f docker/docker-compose.yml run --rm test make check
+
+services:
+    test:
+        build:
+            context: ..
+            dockerfile: docker/Dockerfile
+        volumes:
+            - ..:/code
+        working_dir: /code
+        environment:
+            - TEST_LEDGE_REDIS_HOST=redis
+            - TEST_FILE
+        command: make test
+        depends_on:
+            - redis
+
+    redis:
+        image: redis:8-alpine

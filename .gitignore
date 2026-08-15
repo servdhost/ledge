@@ -4,3 +4,8 @@ dump.rdb
 stdout
 luacov.*
 *.src.rock
+
+# opm build artifacts (see opm-publish.sh) and local publish credentials
+ledge-*.tar.gz
+/ledge-*/
+.opm-credentials

@@ -3011,9 +3011,10 @@ x-esi-recursion-level: 1
 
 === TEST 45b: Cookies and Authorization don't propagate to fragment on different domain
 --- http_config eval: $::HttpConfig
---- config
+--- config eval
+qq{
 location /esi_45_prx {
-    rewrite ^(.*)_prx$ $1 break;
+    rewrite ^(.*)_prx\$ \$1 break;
     content_by_lua_block {
         run()
     }
@@ -3021,8 +3022,30 @@ location /esi_45_prx {
 location /esi_45 {
     default_type text/html;
     content_by_lua_block {
-        ngx.print([[<esi:include src="https://mockbin.org/request" />]])
+        -- 127.0.0.2 is a distinct host from "localhost" (the request's
+        -- Host), so ESI treats this as cross-domain and strips Cookie /
+        -- Authorization, but it still loops back to this same server -
+        -- no real external service (e.g. the long-dead mockbin.org)
+        -- required.
+        ngx.print([[<esi:include src="http://127.0.0.2:$LedgeEnv::nginx_port/echo_headers" />]])
     }
+}
+location /echo_headers {
+    content_by_lua_block {
+        local h = ngx.req.get_headers()
+        ngx.header["Content-Type"] = "application/json"
+        ngx.say('{')
+        ngx.say('"method": "', ngx.req.get_method(), '",')
+        ngx.say('"cache-control": "', h["cache-control"] or "", '",')
+        for k, v in pairs(h) do
+            if k ~= "cache-control" then
+                ngx.say('"', k, '": "', v, '",')
+            end
+        end
+        ngx.say('"x-echo": "done"')
+        ngx.say('}')
+    }
+}
 }
 --- request
 POST /esi_45_prx

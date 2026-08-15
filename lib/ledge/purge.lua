@@ -26,18 +26,18 @@ local put_background_job = require("ledge.background").put_background_job
 local key_chain = require("ledge.cache_key").key_chain
 
 local _M = {
-    _VERSION = "2.3.0",
+    _VERSION = "2.4.0",
 }
 
 local repset_len = -(str_len("::repset")+1)
 
 
-local function create_purge_response(purge_mode, result, qless_jobs)
+local function create_purge_response(purge_mode, result, background_jobs)
     local d = {
         purge_mode = purge_mode,
         result = result,
     }
-    if qless_jobs then d.qless_jobs = qless_jobs end
+    if background_jobs then d.background_jobs = background_jobs end
 
     local ok, json = pcall(cjson_encode, d)
 
@@ -115,7 +115,7 @@ _M.expire_keys = expire_keys
 -- @param   table   key_chain to purge
 -- @return  boolean success
 -- @return  string  message
--- @return  table   qless job (for revalidate only)
+-- @return  table   background job (for revalidate only)
 local function _purge(handler, purge_mode, key_chain)
     local redis = handler.redis
     local storage = handler.storage

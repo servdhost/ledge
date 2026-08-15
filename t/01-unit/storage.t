@@ -957,3 +957,46 @@ location /storage {
 ]
 --- no_error_log
 [error]
+
+
+=== TEST 14: get_reader on a missing / evicted entity returns nil, err
+--- http_config eval: $::HttpConfig
+--- config
+location /storage {
+    content_by_lua_block {
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
+
+        local storage = require(config.module).new()
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00014-" .. backend)
+
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        local reader, err = storage:get_reader(res)
+        assert(reader == nil,
+            "get_reader should return nil for a missing entity")
+        assert(err,
+            "get_reader should return an error message")
+
+        assert(storage:close(),
+            "storage:close should return positively")
+
+        ngx.print(ngx.req.get_uri_args()["backend"], " OK")
+    }
+}
+--- request eval
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
+--- response_body eval
+[
+    "redis OK",
+    "redis_notransact OK",
+]
+--- no_error_log
+[error]

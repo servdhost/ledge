@@ -548,6 +548,7 @@ location /t {
         local redis = require("ledge").create_redis_connection()
         local key_chain = require("ledge.cache_key").key_chain
         local save_key_chain = require("ledge.cache_key").save_key_chain
+        local clean_repset = require("ledge.cache_key").clean_repset
 
         local root_key = "ledge:dummy:root:"
         local vary_key = "foo:bar:test:value"
@@ -620,6 +621,13 @@ location /t {
 
         redis:sadd(chain.repset, "dummy_value")
         local ok, err = save_key_chain(redis, chain, 3600)
+
+        -- clean_repset() is no longer called by save_key_chain() itself -
+        -- it needs a live (non-transactional) connection since it reads
+        -- SMEMBERS and branches on it, so callers run it separately once
+        -- their own transaction (if any) has committed. See handler.lua's
+        -- save_to_cache.
+        assert(clean_repset(redis, chain.repset), "clean_repset returns true")
 
         local vs = redis:smembers(chain.repset)
         for _, v in pairs(vs) do

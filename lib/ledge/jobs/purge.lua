@@ -1,4 +1,4 @@
-local ipairs, tonumber = ipairs, tonumber
+local ipairs = ipairs
 local ngx_log = ngx.log
 local ngx_DEBUG = ngx.DEBUG
 local ngx_ERR = ngx.ERR
@@ -9,7 +9,7 @@ local create_redis_slave_connection = require("ledge").create_redis_slave_connec
 local close_redis_connection = require("ledge").close_redis_connection
 
 local _M = {
-    _VERSION = "2.3.0",
+    _VERSION = "2.4.0",
 }
 
 
@@ -81,13 +81,19 @@ function _M.expire_pattern(cursor, job, handler)
 
         end
 
-        local cursor = tonumber(res[1])
-        if cursor == 0 then
+        -- The cursor is an opaque token as far as callers are concerned -
+        -- some Redis-compatible servers (e.g. DragonflyDB) use values wide
+        -- enough that converting through a Lua number and back to a string
+        -- (e.g. to pass into the next SCAN call) changes its value via
+        -- floating point formatting, corrupting it. Keep it as the string
+        -- Redis/DragonflyDB gave us throughout.
+        local next_cursor = res[1]
+        if next_cursor == "0" then
             return true
         end
 
         -- If we have a valid cursor, recurse to move on.
-        return _M.expire_pattern(cursor, job, handler)
+        return _M.expire_pattern(next_cursor, job, handler)
     end
 end
 

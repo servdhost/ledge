@@ -34,7 +34,7 @@ location /t {
         assert(data.result == "purged",
             "result should be purged")
 
-        assert(not data.qless_jobs, "qless_jobs should be nil")
+        assert(not data.background_jobs, "background_jobs should be nil")
 
 
         local json, err = create_purge_response("revalidate", "scheduled", {
@@ -44,8 +44,8 @@ location /t {
 
         assert(not err, "err should be nil")
 
-        assert(data.qless_jobs.jid == "12345",
-            "qless_job.jid should be '12345'")
+        assert(data.background_jobs.jid == "12345",
+            "background_jobs.jid should be '12345'")
 
 
         local json, err = create_purge_response(function() end)

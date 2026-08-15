@@ -15,7 +15,7 @@ local redis_connector = require("resty.redis.connector")
 
 
 local _M = {
-    _VERSION = "2.3.0",
+    _VERSION = "2.4.0",
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible
@@ -31,7 +31,7 @@ local config = setmetatable({
         keepalive_poolsize = 30,
     },
 
-    qless_db = 1,
+    jobs_db = 1,
 }, fixed_field_metatable)
 
 
@@ -196,16 +196,16 @@ end
 _M.close_redis_connection = close_redis_connection
 
 
-local function create_qless_connection()
+local function create_jobs_connection()
     local redis, err = create_redis_connection()
     if not redis then return nil, err end
 
-    local ok, err = redis:select(config.qless_db)
+    local ok, err = redis:select(config.jobs_db)
     if not ok or ok == ngx_null then return nil, err end
 
     return redis
 end
-_M.create_qless_connection = create_qless_connection
+_M.create_jobs_connection = create_jobs_connection
 
 
 local function create_storage_connection(driver_module, storage_driver_config)

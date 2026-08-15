@@ -8,7 +8,7 @@ SENTINEL_TEST_FILE ?= t/03-sentinel
 TEST_LEDGE_REDIS_HOST ?= 127.0.0.1
 TEST_LEDGE_REDIS_PORT ?= 6379
 TEST_LEDGE_REDIS_DATABASE ?= 2
-TEST_LEDGE_REDIS_QLESS_DATABASE ?= 3
+TEST_LEDGE_REDIS_JOBS_DATABASE ?= 3
 
 TEST_NGINX_HOST ?= 127.0.0.1
 
@@ -18,7 +18,7 @@ TEST_LEDGE_REDIS_HOST=$(TEST_LEDGE_REDIS_HOST) \
 TEST_LEDGE_REDIS_PORT=$(TEST_LEDGE_REDIS_PORT) \
 TEST_LEDGE_REDIS_SOCKET=unix://$(TEST_LEDGE_REDIS_SOCKET) \
 TEST_LEDGE_REDIS_DATABASE=$(TEST_LEDGE_REDIS_DATABASE) \
-TEST_LEDGE_REDIS_QLESS_DATABASE=$(TEST_LEDGE_REDIS_QLESS_DATABASE) \
+TEST_LEDGE_REDIS_JOBS_DATABASE=$(TEST_LEDGE_REDIS_JOBS_DATABASE) \
 TEST_NGINX_HOST=$(TEST_NGINX_HOST) \
 TEST_NGINX_NO_SHUFFLE=1
 
@@ -159,8 +159,8 @@ flush_db:
 
 test_ledge: releng flush_db
 	@$(TEST_LEDGE_REDIS_VARS) $(PROVE) $(TEST_FILE)
-	-@echo "Qless errors:"
-	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_QLESS_DATABASE) llen ql:f:job-error
+	-@echo "Failed background jobs:"
+	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_JOBS_DATABASE) scard ledge:jobs:failed
 
 test_sentinel: releng flush_db
 	$(TEST_LEDGE_SENTINEL_VARS) $(PROVE) $(SENTINEL_TEST_FILE)/01-master_up.t
@@ -177,8 +177,8 @@ coverage: releng flush_db
 	@$(TEST_LEDGE_REDIS_VARS) TEST_COVERAGE=1 $(PROVE) $(TEST_FILE)
 	@luacov
 	@tail -30 luacov.report.out
-	-@echo "Qless errors:"
-	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_QLESS_DATABASE) llen ql:f:job-error
+	-@echo "Failed background jobs:"
+	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_JOBS_DATABASE) scard ledge:jobs:failed
 
 check:
 	luacheck lib

@@ -52,7 +52,7 @@ local response = require("ledge.response")
 
 
 local _M = {
-    _VERSION = "2.3.0",
+    _VERSION = "2.4.0",
 }
 
 
@@ -296,6 +296,30 @@ end
 _M.set_vary_spec = set_vary_spec
 
 
+-- Schedules cleanup of a cache entity's storage keys, e.g. after finding
+-- them missing (evicted) while the cache metadata still references them.
+local function schedule_entity_collection(self, res)
+    local config = self.config
+    return put_background_job(
+        "ledge_gc",
+        "ledge.jobs.collect_entity",
+        {
+            entity_id = res.entity_id,
+            storage_driver = config.storage_driver,
+            storage_driver_config = config.storage_driver_config,
+        },
+        {
+            delay = gc_wait(
+                res.size,
+                config.minimum_old_entity_download_rate
+            ),
+            tags = { "collect_entity" },
+            priority = 10,
+        }
+    )
+end
+
+
 local function read_from_cache(self)
     local res, err = response.new(self)
     if not res then return nil, err end
@@ -317,28 +341,32 @@ local function read_from_cache(self)
         -- Check storage has the entity, if not presume it has been evitcted
         -- and clean up
         if not storage:exists(res.entity_id) then
-            local config = self.config
-            put_background_job(
-                "ledge_gc",
-                "ledge.jobs.collect_entity",
-                {
-                    entity_id = res.entity_id,
-                    storage_driver = config.storage_driver,
-                    storage_driver_config = config.storage_driver_config,
-                },
-                {
-                    delay = gc_wait(
-                        res.size,
-                        config.minimum_old_entity_download_rate
-                    ),
-                    tags = { "collect_entity" },
-                    priority = 10,
-                }
+            ngx_log(ngx_WARN,
+                "entity ", res.entity_id, " missing from storage ",
+                "(likely evicted); treating as a cache miss"
             )
+            schedule_entity_collection(self, res)
             return {} -- MISS
         end
 
-        res:filter_body_reader("cache_body_reader", storage:get_reader(res))
+        -- storage:exists() above and get_reader() here are two separate
+        -- round trips to Redis, so under eviction pressure the entity can
+        -- still vanish in between. get_reader() re-checks and returns nil
+        -- if so - without this, we'd hand a reader that yields zero chunks
+        -- to filter_body_reader(), and silently serve an empty body with
+        -- headers already committed to the client.
+        local reader, reader_err = storage:get_reader(res)
+        if not reader then
+            ngx_log(ngx_WARN,
+                "entity ", res.entity_id, " vanished from storage between ",
+                "the existence check and read (", tostring(reader_err),
+                "); treating as a cache miss"
+            )
+            schedule_entity_collection(self, res)
+            return {} -- MISS
+        end
+
+        res:filter_body_reader("cache_body_reader", reader)
     end
 
     emit(self, "after_cache_read", res)
@@ -782,10 +810,17 @@ local function save_to_cache(self, res)
                         ngx_log(ngx_ERR, "failed to cleanup storage: ", e)
                     end
                 end
-            elseif previous_entity_id then
-                -- Everything has completed and we have an old entity
-                -- Schedule GC to clean it up
-                put_background_job(unpack(gc_job_spec))
+            else
+                -- Transaction committed - now safe to run against a live
+                -- (non-transactional) connection.
+                local _, e = ledge_cache_key.clean_repset(redis, key_chain.repset)
+                if e then ngx_log(ngx_ERR, e) end
+
+                if previous_entity_id then
+                    -- Everything has completed and we have an old entity
+                    -- Schedule GC to clean it up
+                    put_background_job(unpack(gc_job_spec))
+                end
             end
         end
 
@@ -816,10 +851,17 @@ local function save_to_cache(self, res)
         local ok, e = redis:exec()
         if not ok or ok == ngx_null then
             ngx_log(ngx_ERR, "failed to complete transaction: ", e)
-        elseif previous_entity_id then
-            -- Everything has completed and we have an old entity
-            -- Schedule GC to clean it up
-            put_background_job(unpack(gc_job_spec))
+        else
+            -- Transaction committed - now safe to run against a live
+            -- (non-transactional) connection.
+            local _, e = ledge_cache_key.clean_repset(redis, key_chain.repset)
+            if e then ngx_log(ngx_ERR, e) end
+
+            if previous_entity_id then
+                -- Everything has completed and we have an old entity
+                -- Schedule GC to clean it up
+                put_background_job(unpack(gc_job_spec))
+            end
         end
     end
     return true

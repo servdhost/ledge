@@ -1,41 +1,25 @@
 local require = require
 local math_ceil = math.ceil
-local qless = require("resty.qless")
+local job_queue = require("ledge.job_queue")
 
 local _M = {
-    _VERSION = "2.3.0",
+    _VERSION = "2.4.0",
 }
 
-local function put_background_job( queue, klass, data, options)
-    local q = qless.new({
-        get_redis_client = require("ledge").create_qless_connection
-    })
+-- If options.jid is given (i.e. a non-random jid), putting this job will
+-- overwrite any existing job with the same jid, unless that job is
+-- currently running, in which case this put is silently dropped.
+local function put_background_job(queue, klass, data, options)
+    local ledge = require("ledge")
 
-    -- If we've been specified a jid (i.e. a non random jid), putting this
-    -- job will overwrite any existing job with the same jid.
-    -- We test for a "running" state, and if so we silently drop this job.
-    if options.jid then
-        local existing = q.jobs:get(options.jid)
+    local redis, err = ledge.create_jobs_connection()
+    if not redis then return nil, err end
 
-        if existing and existing.state == "running" then
-            return nil, "Job with the same jid is currently running"
-        end
-    end
+    local job, err = job_queue.put(redis, queue, klass, data, options or {})
 
-    -- Put the job
-    local res, err = q.queues[queue]:put(klass, data, options)
+    ledge.close_redis_connection(redis)
 
-    q:redis_close()
-
-    if res then
-        return {
-            jid = res,
-            klass = klass,
-            options = options,
-        }
-    else
-        return res, err
-    end
+    return job, err
 end
 _M.put_background_job = put_background_job
 

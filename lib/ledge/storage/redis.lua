@@ -16,7 +16,7 @@ local get_fixed_field_metatable_proxy =
 
 
 local _M = {
-    _VERSION = "2.3.0",
+    _VERSION = "2.4.0",
 }
 
 
@@ -219,14 +219,26 @@ end
 
 -- Returns an iterator for reading the body chunks.
 --
+-- The caller is expected to have already confirmed the entity exists (e.g.
+-- via exists()), but that check and this call are two separate round trips
+-- to Redis - under eviction pressure the entity can still vanish in
+-- between. So we re-check here too: if there's nothing to read despite the
+-- caller believing there should be, we return nil, err rather than an
+-- iterator which would silently yield zero chunks (i.e. an empty body).
+--
 -- @param   table       Module instance (self)
 -- @param   table       Response object
 -- @return  function    Iterator, returning chunk, err, has_esi for each call
+-- @return  string      err (only set if a reader could not be returned)
 function _M.get_reader(self, res)
     local redis = self.redis
     local entity_id = res.entity_id
     local entity_keys = entity_keys(entity_id)
     local num_chunks = redis:llen(entity_keys.body) or 0
+
+    if num_chunks == 0 then
+        return nil, "entity has no body chunks in storage"
+    end
 
     return function()
         local cursor = self._reader_cursor

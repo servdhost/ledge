@@ -216,7 +216,7 @@ init_by_lua_block {
         redis_connector_params = {
             url = "redis://redis:0/",
         },
-        qless_db = 123,
+        jobs_db = 123,
     })
 
     require("ledge").set_handler_defaults({

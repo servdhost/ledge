@@ -5,13 +5,13 @@ my $pwd = cwd();
 
 $ENV{TEST_NGINX_PORT} ||= 1984;
 $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 2;
-$ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} ||= 3;
+$ENV{TEST_LEDGE_REDIS_JOBS_DATABASE} ||= 3;
 $ENV{TEST_LEDGE_SENTINEL_MASTER_NAME} ||= 'mymaster';
 $ENV{TEST_LEDGE_SENTINEL_PORT} ||= 6381;
 $ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
 lua_socket_log_errors Off;
 init_by_lua_block {
@@ -21,7 +21,7 @@ init_by_lua_block {
     end
 
     local db = $ENV{TEST_LEDGE_REDIS_DATABASE}
-    local qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE}
+    local jobs_db = $ENV{TEST_LEDGE_REDIS_JOBS_DATABASE}
     local master_name = '$ENV{TEST_LEDGE_SENTINEL_MASTER_NAME}'
     local sentinel_port = $ENV{TEST_LEDGE_SENTINEL_PORT}
 
@@ -34,7 +34,7 @@ init_by_lua_block {
 
     require("ledge").configure({
         redis_connector_params = redis_connector_params,
-        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
+        jobs_db = $ENV{TEST_LEDGE_REDIS_JOBS_DATABASE},
     })
 
     require("ledge").set_handler_defaults({
