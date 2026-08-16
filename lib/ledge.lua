@@ -74,6 +74,13 @@ local handler_defaults = setmetatable({
     keep_cache_for  = 86400 * 30,  -- (sec)
     minimum_old_entity_download_rate = 56,
 
+    -- Backoff for background revalidation after upstream failures (5xx from
+    -- the loopback fetch), so a struggling origin isn't hit by every single
+    -- stale-serving request in the meantime. Doubles per consecutive
+    -- failure, capped at revalidate_backoff_max.
+    revalidate_backoff_initial = 5,    -- (sec)
+    revalidate_backoff_max = 300,      -- (sec)
+
     esi_enabled = false,
     esi_content_types = { "text/html" },
     esi_allow_surrogate_delegation = false,

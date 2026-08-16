@@ -588,6 +588,19 @@ end
 local function revalidate_in_background(self, key_chain, update_revalidation_data)
     local redis = self.redis
 
+    -- If we've recently failed to revalidate (e.g. the origin is down),
+    -- back off rather than re-attempting on every single stale-serving
+    -- request in the meantime. See ledge.jobs.revalidate.
+    local backoff_key = key_chain.reval_params .. ":backoff"
+    local backoff_until, err = redis:hget(backoff_key, "until")
+    if err then ngx_log(ngx_ERR, err) end
+    if backoff_until and backoff_until ~= ngx_null then
+        backoff_until = tonumber(backoff_until)
+        if backoff_until and backoff_until > ngx_time() then
+            return nil, "backing off after recent revalidation failures"
+        end
+    end
+
     -- Revalidation data is updated if this is a proper request, but not if
     -- it's a purge request.
     if update_revalidation_data then
@@ -645,7 +658,11 @@ local function revalidate_in_background(self, key_chain, update_revalidation_dat
     return put_background_job(
         "ledge_revalidate",
         "ledge.jobs.revalidate",
-        { key_chain = key_chain },
+        {
+            key_chain = key_chain,
+            revalidate_backoff_initial = self.config.revalidate_backoff_initial,
+            revalidate_backoff_max = self.config.revalidate_backoff_max,
+        },
         {
             jid = ngx_md5("revalidate:" .. uri),
             tags = { "revalidate" },
@@ -669,6 +686,8 @@ local function fetch_in_background(self)
             key_chain = key_chain,
             reval_params = reval_params,
             reval_headers = reval_headers,
+            revalidate_backoff_initial = self.config.revalidate_backoff_initial,
+            revalidate_backoff_max = self.config.revalidate_backoff_max,
         },
         {
             jid = ngx_md5("revalidate:" .. req_full_uri()),

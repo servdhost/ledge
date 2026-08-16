@@ -714,6 +714,8 @@ Must be called during the `init_worker` phase, otherwise background tasks will n
 * [advertise_ledge](#buffer_size)
 * [keep_cache_for](#buffer_size)
 * [minimum_old_entity_download_rate](#minimum_old_entity_download_rate)
+* [revalidate_backoff_initial](#revalidate_backoff_initial)
+* [revalidate_backoff_max](#revalidate_backoff_max)
 * [esi_enabled](#esi_enabled)
 * [esi_content_types](#esi_content_types)
 * [esi_allow_surrogate_delegation](#esi_allow_surrogate_delegation)
@@ -941,6 +943,26 @@ default: `56 (kbps)`
 Clients reading slower than this who are also unfortunate enough to have started reading from an entity which has been replaced (due to another client causing a revalidation for example), may have their entity garbage collected before they finish, resulting in an incomplete resource being delivered.
 
 Lowering this is fairer on slow clients, but widens the potential window for multiple old entities to stack up, which in turn could threaten Redis storage space and force evictions.
+
+[Back to TOC](#handler-configuration-options)
+
+
+#### revalidate_backoff_initial
+
+default: `5 (sec)`
+
+When a background revalidation's loopback request comes back with an upstream error (a 5xx status, e.g. because the real origin is down), Ledge backs off before allowing another revalidation attempt for that item, rather than re-attempting on every single stale-serving request in the meantime. This is the initial backoff window after the first such failure; it doubles for each further consecutive failure, up to [revalidate_backoff_max](#revalidate_backoff_max).
+
+The backoff state is cleared as soon as a revalidation succeeds.
+
+[Back to TOC](#handler-configuration-options)
+
+
+#### revalidate_backoff_max
+
+default: `300 (sec)`
+
+The cap on [revalidate_backoff_initial](#revalidate_backoff_initial)'s exponential backoff, so a persistently failing origin doesn't end up with an unbounded wait between revalidation attempts.
 
 [Back to TOC](#handler-configuration-options)
 

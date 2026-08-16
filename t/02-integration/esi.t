@@ -2119,7 +2119,10 @@ a=1
 [error]
 
 
-=== TEST 27c: ESI still works when serving stale-if-error
+=== TEST 27c: ESI still works when serving stale-if-error. The background
+revalidation this triggers keeps hitting the same 500, so it's expected to
+be logged as a failure (see ledge.jobs.revalidate's status check) rather
+than silently treated as successful.
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_27_prx {
@@ -2140,8 +2143,8 @@ GET /esi_27_prx?a=1
 --- response_body
 a=1
 --- wait: 2
---- no_error_log
-[error]
+--- error_log
+revalidate received upstream error status 500
 
 
 === TEST 28: Remaining parent response returned on fragment error
