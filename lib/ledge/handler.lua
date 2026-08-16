@@ -854,7 +854,7 @@ local function save_to_cache(self, res)
         -- Attach storage writer
         local ok, writer = pcall(storage.get_writer, storage,
             res,
-            keep_cache_for,
+            expiry,
             onsuccess,
             onfailure
         )
