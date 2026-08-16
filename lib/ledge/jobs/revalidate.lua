@@ -157,9 +157,18 @@ function _M.perform(job)
     -- origin is failing, Ledge's own error handling still returns a
     -- response (e.g. a 5xx, or a stale-if-error fallback) rather than a
     -- connection failure, and none of that updates the stored cache
-    -- metadata. Treat 5xx as a failed revalidation so we notice, retry via
-    -- the job queue's own mechanism, and back off future attempts rather
-    -- than silently leaving stale content in place forever.
+    -- metadata. Treat 5xx as a failed revalidation so we notice and back
+    -- off future attempts, rather than silently leaving stale content in
+    -- place forever.
+    --
+    -- We deliberately don't return a job-error here (which would cause the
+    -- job queue to retry immediately, several times, on its own schedule).
+    -- record_failure() above already governs when the next attempt is
+    -- allowed via revalidate_in_background()'s own backoff check, and each
+    -- stale-serving request in the meantime will trigger a fresh attempt
+    -- once that backoff expires anyway - a job-queue-level retry loop on
+    -- top of that just repeats the same request several times in a row
+    -- and inflates the backoff further for no benefit.
     if key_chain then
         if res.status and res.status >= 500 then
             record_failure(
@@ -168,9 +177,10 @@ function _M.perform(job)
                 job.data.revalidate_backoff_initial,
                 job.data.revalidate_backoff_max
             )
-            return nil, "job-error",
-                "revalidate received upstream error status " ..
-                tostring(res.status)
+            ngx_log(ngx_ERR,
+                "revalidate received upstream error status ",
+                tostring(res.status), "; backing off further attempts"
+            )
         else
             clear_backoff(job.redis, key_chain)
         end

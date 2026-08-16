@@ -4,9 +4,9 @@ use lib "$FindBin::Bin/..";
 use LedgeEnv;
 
 # backoff_max needs to comfortably outlast this test's own wait chain
-# (TEST 2's wait for 6 rapid job-queue retries to settle, plus TEST 3's
-# own processing) - otherwise the backoff window could expire before TEST
-# 3 gets a chance to verify it's still in effect.
+# (TEST 2's wait for the single revalidation attempt to complete, plus
+# TEST 3's own processing) - otherwise the backoff window could expire
+# before TEST 3 gets a chance to verify it's still in effect.
 our $HttpConfig = LedgeEnv::http_config(extra_lua_config => qq{
     require("ledge").set_handler_defaults({
         revalidate_backoff_initial = 5,
@@ -47,10 +47,12 @@ OK
 
 
 === TEST 2: Origin now fails permanently. Trigger a stale-serving request
-and let its background revalidation run to completion - it retries a
-bounded number of times (the job queue's own immediate retry, unrelated
-to the new cross-request backoff) and then gives up, entering backoff.
-Origin hits are counted via Redis, so the count survives the nginx
+and let its background revalidation run to completion. The job queue no
+longer retries this itself (record_failure() already governs the next
+attempt via cross-request backoff, so a job-queue-level retry loop on top
+of that would just repeat the same request several times and inflate the
+backoff further for no benefit) - so the origin should be hit exactly
+once. Origin hits are counted via Redis, so the count survives the nginx
 restart between Test::Nginx blocks.
 --- http_config eval: $::HttpConfig
 --- config
@@ -72,9 +74,29 @@ location /revalback {
 GET /revalback_prx
 --- response_body
 OK
---- wait: 8
+--- wait: 3
 --- error_log
 revalidate received upstream error status 500
+
+
+=== TEST 2b: Confirm the origin was only hit once - no job-queue-level
+retries occurred.
+--- http_config eval: $::HttpConfig
+--- config
+location /diag {
+    content_by_lua_block {
+        local redis = require("ledge").create_redis_connection()
+        local hits = redis:get("test:revalback:hits")
+        require("ledge").close_redis_connection(redis)
+        ngx.say("hits=", hits)
+    }
+}
+--- request
+GET /diag
+--- response_body
+hits=1
+--- no_error_log
+[error]
 
 
 === TEST 3: Immediately after, a second stale-serving request must NOT
