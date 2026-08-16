@@ -277,7 +277,11 @@ return {
                 handler.redis_subscriber = redis_subscriber
                 return sm:e "subscribed_to_collapsed_forwarding_channel"
             elseif ok == 0 then
-                -- Lock was freed before we subscribed
+                -- Lock was freed before we subscribed. We never end up
+                -- waiting on this connection, so unsubscribe and return it
+                -- to the pool rather than leaving it open and orphaned.
+                redis_subscriber:unsubscribe()
+                ledge.close_redis_connection(redis_subscriber)
                 return sm:e "collapsed_forwarding_channel_closed"
             else
                 -- Error checking lock still exists
