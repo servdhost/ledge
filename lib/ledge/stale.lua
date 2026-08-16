@@ -68,6 +68,8 @@ local function verify_stale_conditions(res, token)
 
     if stale_ttl <= 0 then
         return false -- No stale policy defined
+    elseif (stale_ttl * -1) > (res.remaining_ttl or 0) then
+        return false -- Cannot serve stale as we're beyond the stale window
     elseif header_has_directive(req_cc, "min-fresh") then
         return false -- Cannot serve stale as request demands freshness
     elseif req_cc_max_age and

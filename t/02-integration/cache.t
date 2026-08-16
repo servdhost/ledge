@@ -701,6 +701,45 @@ Numkeys: 7
 [error]
 
 
+=== TEST 15c: Entity body storage TTL matches metadata TTL (max-age +
+keep_cache_for), not keep_cache_for alone. The entity lives under its own
+"ledge:entity:*" namespace (keyed by entity_id, not the URL-derived root
+key), so TEST 15b's key count above never actually covers it.
+--- http_config eval: $::HttpConfig
+--- config
+location /cache_15_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local redis = require("ledge").create_redis_connection()
+        local handler = require("ledge").create_handler()
+        handler.redis = redis
+        local key_chain = handler:cache_key_chain()
+        local entity_id = handler:entity_id(key_chain)
+
+        local storage = assert(require("ledge").create_storage_connection())
+        local ttl = assert(storage:get_ttl(entity_id))
+        assert(storage:close())
+
+        -- Primed in TEST 15a with max-age=60, keep_cache_for=1. Allow
+        -- generous slack for time elapsed since priming (including TEST
+        -- 15b's own 3 second sleep and the nginx restart between test
+        -- blocks), but this must be well above keep_cache_for alone (1)
+        -- to prove max-age is included.
+        assert(ttl > 45 and ttl <= 61,
+            "expected entity ttl close to max-age(60) + keep_cache_for(1), " ..
+            "got " .. tostring(ttl))
+
+        ngx.say("OK")
+    }
+}
+--- request
+GET /cache_15_prx
+--- response_body
+OK
+--- no_error_log
+[error]
+
+
 === TEST 16: Prime a resource into cache
 --- http_config eval: $::HttpConfig
 --- config

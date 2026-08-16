@@ -11,12 +11,11 @@ our $HttpConfig = LedgeEnv::http_config(extra_nginx_config => qq{
     })
 }, run_worker => 1);
 
-# Uses the default (long) keep_cache_for, unlike $HttpConfig above.
-# keep_cache_for is (bug notwithstanding - see handler.lua's
-# save_to_cache) passed directly as the storage entity's own TTL, so
-# gc.t's file-wide keep_cache_for=0 causes entities to be deleted (Redis
-# treats EXPIRE ... 0 as immediate deletion) as soon as they're written.
-# Tests that need a body to actually persist across requests use this.
+# Uses the default (long) keep_cache_for, unlike $HttpConfig above, to
+# keep entity persistence timing well clear of this file's own GC-timing
+# tests below (which rely on the file-wide keep_cache_for=0 to make
+# metadata expire quickly). Tests that need a body to actually persist
+# across requests use this.
 our $HttpConfigNormalTTL = LedgeEnv::http_config(run_worker => 1);
 
 no_long_string();
