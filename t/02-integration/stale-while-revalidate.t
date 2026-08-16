@@ -589,3 +589,88 @@ location /stale_reval_params_prx {
 ["TEST 7 Revalidated: 1", "TEST 7 Revalidated: 2"]
 --- no_error_log
 [error]
+
+
+=== TEST 8: Prime cache with a short stale-while-revalidate, then expire it.
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_8_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        handler:bind("before_save", function(res)
+            -- immediately expire, with only a 1 second stale-while-revalidate window
+            res.header["Cache-Control"] = "max-age=0, stale-while-revalidate=1"
+        end)
+        handler:run()
+    }
+}
+location /stale_8 {
+    content_by_lua_block {
+        local redis = require("ledge").create_redis_connection()
+        local hits = redis:incr("test:stale8:hits")
+        require("ledge").close_redis_connection(redis)
+
+        ngx.header["Cache-Control"] = "max-age=3600, stale-while-revalidate=1"
+        ngx.print("ORIGIN: ", hits)
+    }
+}
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /stale_8_prx
+--- response_body: ORIGIN: 1
+--- no_error_log
+[error]
+--- wait: 3
+
+
+=== TEST 8b: Once the declared stale-while-revalidate window has elapsed (3
+seconds waited, above, against a window of only 1 second), a plain request
+must NOT be served the stale response - remaining_ttl is now compared
+against the declared window, so eligibility lapses once we're beyond it and
+this falls back to a normal synchronous fetch.
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_8_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+}
+location /stale_8 {
+    content_by_lua_block {
+        local redis = require("ledge").create_redis_connection()
+        local hits = redis:incr("test:stale8:hits")
+        require("ledge").close_redis_connection(redis)
+
+        ngx.header["Cache-Control"] = "max-age=3600, stale-while-revalidate=1"
+        ngx.print("ORIGIN: ", hits)
+    }
+}
+--- request
+GET /stale_8_prx
+--- response_body: ORIGIN: 2
+--- response_headers_like
+X-Cache: MISS from .*
+--- raw_response_headers_unlike
+Warning: 110 .*
+--- no_error_log
+[error]
+
+
+=== TEST 8c: Clean up the test counter key.
+--- http_config eval: $::HttpConfig
+--- config
+location /diag {
+    content_by_lua_block {
+        local redis = require("ledge").create_redis_connection()
+        redis:del("test:stale8:hits")
+        require("ledge").close_redis_connection(redis)
+        ngx.print("ok")
+    }
+}
+--- request
+GET /diag
+--- no_error_log
+[error]

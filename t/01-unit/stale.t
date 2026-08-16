@@ -104,6 +104,11 @@ X-Res-Age: 5",
 X-Res-Age: 5",
     "Cache-Control: max-stale=10, stale-while-revalidate=60",
     "Cache-Control: max-stale=60, stale-while-revalidate=60",
+    "Cache-Control: stale-while-revalidate=60",
+    "Cache-Control: stale-while-revalidate=60",
+    "Cache-Control: stale-while-revalidate=60",
+    "Cache-Control: stale-if-error=30",
+    "Cache-Control: stale-if-error=30",
 ]
 --- request eval
 [
@@ -115,6 +120,11 @@ X-Res-Age: 5",
     "GET /t?token=stale-while-revalidate&stale=false",
     "GET /t?token=stale-while-revalidate&stale=false",
     "GET /t?token=stale-while-revalidate&stale=true",
+    "GET /t?token=stale-while-revalidate&ttl=-10&stale=true",
+    "GET /t?token=stale-while-revalidate&ttl=-60&stale=true",
+    "GET /t?token=stale-while-revalidate&ttl=-61&stale=false",
+    "GET /t?token=stale-if-error&ttl=-20&stale=true",
+    "GET /t?token=stale-if-error&ttl=-45&stale=false",
 ]
 --- no_error_log
 [error]

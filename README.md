@@ -396,6 +396,8 @@ end)
 
 In other words, set the TTL to the highest comfortable frequency of requests at the origin, and `stale-while-revalidate` to the longest comfortable TTL, to increase the chances of background revalidation occurring. Note that the first stale request will obviously get stale content, and so very long values can result in very out of date content for one request.
 
+Note that `stale-while-revalidate` and `stale-if-error` are windows measured from expiry, not from [keep_cache_for](#keep_cache_for): once a response has been stale for longer than the declared value, it's no longer eligible to be served stale and falls back to a normal synchronous fetch, even though [keep_cache_for](#keep_cache_for) may keep the entry around in Redis for much longer. If an origin is persistently failing within that window, see [revalidate_backoff_initial](#revalidate_backoff_initial) and [revalidate_backoff_max](#revalidate_backoff_max) to avoid hitting it on every subsequent stale-serving request.
+
 All stale behaviours are constrained by normal cache control semantics. For example, if the origin is down, and the response could be served stale due to the upstream error, but the request contains `Cache-Control: no-cache` or even `Cache-Control: max-age=60` where the content is older than 60 seconds, they will be served the error, rather than the stale content.
 
 [Back to TOC](#table-of-contents)
