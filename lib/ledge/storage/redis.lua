@@ -36,11 +36,22 @@ local defaults = setmetatable({
 local KEY_PREFIX = "ledge:entity:"
 
 
--- Returns the Redis keys for entity_id
+-- Returns the Redis keys for entity_id.
+--
+-- The body is stored as a single Redis string, built up with APPEND as
+-- chunks arrive and read back with GETRANGE, rather than as a list - so
+-- the whole entity is one plain string value, eligible for tiering to
+-- disk under backends (e.g. DragonflyDB) which only support this for
+-- strings, not lists/hashes/etc.
+--
+-- has_esi records whether *any* chunk contained ESI markup when the body
+-- was originally scanned, for the entity as a whole rather than per
+-- chunk. Pages that don't use ESI (most) are unaffected; pages that do
+-- simply run the whole body through the ESI filter on serve, rather than
+-- skipping the parts of it already known to be ESI-free.
 local function entity_keys(entity_id)
     if entity_id then
         return {
-            -- Both keys are lists of chunks
             body        = KEY_PREFIX .. "{" .. entity_id .. "}" .. ":body",
             body_esi    = KEY_PREFIX .. "{" .. entity_id .. "}" .. ":body_esi",
         }
@@ -217,7 +228,8 @@ function _M.get_ttl(self, entity_id)
 end
 
 
--- Returns an iterator for reading the body chunks.
+-- Returns an iterator for reading the body in buffer_size windows, via
+-- GETRANGE over the single body string.
 --
 -- The caller is expected to have already confirmed the entity exists (e.g.
 -- via exists()), but that check and this call are two separate round trips
@@ -225,6 +237,11 @@ end
 -- between. So we re-check here too: if there's nothing to read despite the
 -- caller believing there should be, we return nil, err rather than an
 -- iterator which would silently yield zero chunks (i.e. an empty body).
+--
+-- Because the body is one key, loss is all-or-nothing (unlike a per-chunk
+-- key scheme, where one chunk out of many could be evicted independently)
+-- - STRLEN alone is enough to catch a vanished entity upfront, before any
+-- of it is read.
 --
 -- @param   table       Module instance (self)
 -- @param   table       Response object
@@ -234,56 +251,83 @@ function _M.get_reader(self, res)
     local redis = self.redis
     local entity_id = res.entity_id
     local entity_keys = entity_keys(entity_id)
-    local num_chunks = redis:llen(entity_keys.body) or 0
 
-    if num_chunks == 0 then
-        return nil, "entity has no body chunks in storage"
+    local body_len, err = redis:strlen(entity_keys.body)
+    if not body_len or body_len == ngx_null then
+        return nil, err
+    elseif body_len == 0 then
+        return nil, "entity has no body in storage"
     end
 
-    return function()
+    local has_esi, err = redis:get(entity_keys.body_esi)
+    if not has_esi or has_esi == ngx_null then
+        return nil, err or "entity has no body_esi flag in storage"
+    end
+    has_esi = has_esi == "true"
+
+    return function(buffer_size)
         local cursor = self._reader_cursor
-        self._reader_cursor = cursor + 1
+        if cursor >= body_len then return nil end
 
-        if cursor < num_chunks then
-            local chunk, err = redis:lindex(entity_keys.body, cursor)
-            if not chunk then return nil, err, nil end
-
-            local has_esi, err = redis:lindex(entity_keys.body_esi, cursor)
-            if not has_esi then return nil, err, nil end
-
-            if chunk == ngx_null or has_esi == ngx_null then
-                ngx_log(ngx_WARN,
-                    "entity removed during read, ",
-                    entity_keys.body
-                )
-                chunk = nil
-            end
-
-            return chunk, nil, has_esi == "true"
+        -- No buffer_size means "give me everything remaining" in one go
+        -- (e.g. a caller not doing incremental/range-based streaming),
+        -- rather than requiring every caller to know/care about chunking.
+        --
+        -- Likewise, if the entity has ESI markup anywhere, don't chunk on
+        -- read at all: a tag could otherwise be split across an
+        -- arbitrary buffer_size-sized boundary that has nothing to do
+        -- with where the tag actually is in the body (unlike the
+        -- original per-network-chunk scan, which buffers and reassembles
+        -- tags split across upstream reads). The ESI process filter
+        -- expects to find a complete tag within a single chunk it's
+        -- handed; splitting one across two GETRANGE windows means
+        -- neither half matches, and it's served unprocessed. Bodies are
+        -- bounded by max_size regardless, and ESI-using pages are a
+        -- minority, so reading the whole thing in one go here is an
+        -- acceptable one-off memory cost for those pages specifically.
+        local last
+        if not buffer_size or has_esi then
+            last = body_len - 1
+        else
+            last = cursor + buffer_size - 1
+            if last > body_len - 1 then last = body_len - 1 end
         end
+
+        local chunk, err = redis:getrange(entity_keys.body, cursor, last)
+        if not chunk then return nil, err, nil end
+
+        -- GETRANGE on a missing key returns an empty string (not ngx.null
+        -- like GET), so that's our signal the entity vanished mid-read.
+        -- Distinct from a clean EOF (nil, nil, nil) - the caller must not
+        -- treat this as the body having ended successfully.
+        if chunk == ngx_null or chunk == "" then
+            ngx_log(ngx_WARN,
+                "entity removed during read, ",
+                entity_keys.body
+            )
+            return nil, "entity removed during read", nil
+        end
+
+        self._reader_cursor = cursor + #chunk
+
+        return chunk, nil, has_esi
     end
 end
 
 
--- Writes a given chunk
-local function write_chunk(self, entity_keys, chunk, has_esi, ttl)
+-- Writes a given chunk onto the body string.
+local function write_chunk(self, entity_keys, chunk, ttl)
     local redis = self.redis
 
-    -- Write chunks / has_esi onto lists
-    local ok, e = redis:rpush(entity_keys.body, chunk)
+    local ok, e = redis:append(entity_keys.body, chunk)
     if not ok then return nil, e end
 
-    ok, e = redis:rpush(entity_keys.body_esi, tostring(has_esi))
-    if not ok then return nil, e end
-
-    -- If this is the first write, set expiration too
+    -- If this is the first write, set expiration too (a string's TTL, once
+    -- set, applies regardless of how many further APPENDs extend it).
     if not self._keys_created then
         self._keys_created = true
 
         ok, e = redis:expire(entity_keys.body, ttl)
-        if not ok then return nil, e end
-
-        ok, e = redis:expire(entity_keys.body_esi, ttl)
         if not ok then return nil, e end
     end
 
@@ -315,6 +359,9 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
     local transaction_open = false
 
     local size = 0
+    -- Whether any chunk was found (at fetch time) to contain ESI markup,
+    -- for the entity as a whole - see entity_keys() above.
+    local entity_has_esi = false
     local reader = res.body_reader
 
     return function(buffer_size)
@@ -331,17 +378,13 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
 
         if chunk and not failed then  -- We have something to write
             size = size + #chunk
+            if has_esi then entity_has_esi = true end
 
             if max_size and size > max_size then
                 failed = true
                 failed_reason = "body is larger than " .. max_size .. " bytes"
             else
-                local ok, e = write_chunk(self,
-                    entity_keys,
-                    chunk,
-                    has_esi,
-                    ttl
-                )
+                local ok, e = write_chunk(self, entity_keys, chunk, ttl)
                 if not ok then
                     failed = true
                     failed_reason = "error writing: " .. tostring(e)
@@ -349,6 +392,19 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
             end
 
         elseif not chunk and not failed then  -- We're finished
+            -- Only record the (now fully known) has_esi flag if we
+            -- actually wrote something - a zero-length body has no
+            -- entity at all, matching the pre-write state.
+            if self._keys_created then
+                local ok, e = redis:set(
+                    entity_keys.body_esi, tostring(entity_has_esi)
+                )
+                if not ok then ngx_log(ngx_ERR, e) end
+
+                ok, e = redis:expire(entity_keys.body_esi, ttl)
+                if not ok then ngx_log(ngx_ERR, e) end
+            end
+
             if supports_transactions then
                 local ok, e = redis:exec() -- Commit
 
