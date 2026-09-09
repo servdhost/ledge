@@ -16,7 +16,7 @@ local job_queue = require("ledge.job_queue")
 
 
 local _M = {
-    _VERSION = "2.5.0",
+    _VERSION = "2.6.0",
 }
 
 

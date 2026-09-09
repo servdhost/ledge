@@ -12,7 +12,7 @@ local randomhex = require("ledge.util").string.randomhex
 
 
 local _M = {
-    _VERSION = "2.5.0",
+    _VERSION = "2.6.0",
 }
 
 

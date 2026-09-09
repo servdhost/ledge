@@ -23,7 +23,7 @@ local http_headers = require("resty.http_headers")
 
 
 local _M = {
-    _VERSION = "2.5.0",
+    _VERSION = "2.6.0",
 }
 
 
