@@ -7,6 +7,7 @@ local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
 local ngx_var = ngx.var
 local ngx_null = ngx.null
+local ngx_req_get_method = ngx.req.get_method
 
 local tbl_insert = table.insert
 local tbl_concat = table.concat
@@ -24,6 +25,22 @@ local http_headers = require("resty.http_headers")
 local _M = {
     _VERSION = "2.5.0",
 }
+
+
+-- Escapes Redis glob metacharacters (used by SCAN/KEYS MATCH, e.g. in
+-- ledge.jobs.purge's wildcard purge) so request-controlled content (host,
+-- URI, query args) is treated as a literal value rather than an
+-- accidental pattern - e.g. a URI/query string containing "*", "?", "[" or
+-- "]" from ordinary traffic could otherwise cause a later purge of that
+-- exact resource to match and invalidate unrelated cache entries too.
+--
+-- PURGE requests are exempt: operators are deliberately able to embed
+-- literal glob syntax anywhere in a purge target to purge multiple
+-- matching entries at once (see TEST 6 in cache_key.t), so escaping is
+-- skipped for them to preserve that existing behaviour.
+local function escape_glob(s)
+    return (s:gsub("[%*%?%[%]\\]", "\\%0"))
+end
 
 
 -- Generates the root key. The default spec is:
@@ -44,20 +61,31 @@ local function generate_root_key(key_spec, max_args)
         "cache",
     }
 
+    -- See escape_glob() above - PURGE requests are allowed to embed real
+    -- glob syntax in their target, everything else is escaped.
+    local is_purge = ngx_req_get_method() == "PURGE"
+
     for _, field in ipairs(key_spec) do
         if field == "scheme" then
             tbl_insert(key, ngx_var.scheme)
         elseif field == "host" then
-            tbl_insert(key, ngx_var.host)
+            tbl_insert(key,
+                is_purge and ngx_var.host or escape_glob(ngx_var.host))
         elseif field == "port" then
             tbl_insert(key, ngx_var.server_port)
         elseif field == "uri" then
-            tbl_insert(key, ngx_var.uri)
+            tbl_insert(key,
+                is_purge and ngx_var.uri or escape_glob(ngx_var.uri))
         elseif field == "args" then
-            tbl_insert(
-                key,
-                req_args_sorted(max_args) or req_default_args()
-            )
+            local args = req_args_sorted(max_args)
+            if is_purge then
+                tbl_insert(key, args or req_default_args())
+            else
+                tbl_insert(
+                    key,
+                    args and escape_glob(args) or req_default_args()
+                )
+            end
 
         elseif type(field) == "function" then
             local ok, res = pcall(field)

@@ -101,6 +101,11 @@ local function put(redis, queue, klass, data, options)
     local ok, err = redis:multi()
     if not ok then return nil, err end
 
+    -- Clear any TTL left over from a previous job that used this same jid
+    -- (set by complete()/fail_or_retry()), otherwise this freshly (re)queued
+    -- job can expire out from under itself before a worker gets to it.
+    redis:persist(job_key(jid))
+
     redis:hmset(job_key(jid),
         "queue", queue,
         "klass", klass,
