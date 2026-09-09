@@ -231,17 +231,13 @@ location /storage {
 CHUNK 2:nil:true
 CHUNK 3:nil:false
 wrote 21 bytes
-CHUNK 1:nil:false
-CHUNK 2:nil:true
-CHUNK 3:nil:false
+CHUNK 1CHUNK 2CHUNK 3:nil:true
 ",
     "CHUNK 1:nil:false
 CHUNK 2:nil:true
 CHUNK 3:nil:false
 wrote 21 bytes
-CHUNK 1:nil:false
-CHUNK 2:nil:true
-CHUNK 3:nil:false
+CHUNK 1CHUNK 2CHUNK 3:nil:true
 ",
 ]
 --- no_error_log
@@ -643,9 +639,20 @@ location /storage {
         assert(storage:connect(config.params),
             "storage:connect should return positively")
 
-        -- Prove it still exists (could not be cleaned up)
-        assert(storage:exists(res.entity_id),
-            "entity should exist")
+        -- storage:exists() now correctly reports false here - body_esi
+        -- is only ever written once, at a successful EOF, which this
+        -- write never reached, so the entity is genuinely incomplete.
+        -- But the orphaned body key itself (holding the one chunk that
+        -- did write before the connection died) could not be cleaned up
+        -- (the best-effort delete attempt also hit the dead connection),
+        -- so it remains - prove that directly.
+        assert(not storage:exists(res.entity_id),
+            "entity should not report as existing (it's incomplete)")
+
+        local exists, err = storage.redis:exists(
+            "ledge:entity:{" .. res.entity_id .. "}:body"
+        )
+        assert(exists == 1, "orphaned body key should remain")
     }
 }
 --- request eval
@@ -713,6 +720,9 @@ location /storage {
         assert(storage:exists(res.entity_id),
             "entity should exist")
 
+        -- sink() drives the reader with no buffer_size, so get_reader()
+        -- returns the whole body in a single call - with the aggregate
+        -- has_esi flag for the entity (true, since chunk 2 had it set).
         res.body_reader = storage:get_reader(res)
         sink(res.body_reader)
 
@@ -731,17 +741,13 @@ location /storage {
 456:nil:true
 789:nil:false
 wrote 9 bytes
-123:nil:false
-456:nil:true
-789:nil:false
+123456789:nil:true
 ",
     "123:nil:false
 456:nil:true
 789:nil:false
 wrote 9 bytes
-123:nil:false
-456:nil:true
-789:nil:false
+123456789:nil:true
 ",
 ]
 --- no_error_log
@@ -1002,7 +1008,7 @@ location /storage {
 [error]
 
 
-=== TEST 15: get_reader refuses to start if any chunk key has been evicted
+=== TEST 15: get_reader refuses to start if the body key has been evicted
 --- http_config eval: $::HttpConfig
 --- config
 location /storage {
@@ -1031,32 +1037,27 @@ location /storage {
         assert(storage:exists(res.entity_id),
             "entity should exist")
 
-        -- Simulate the backend evicting/tiering away a single chunk from
-        -- the middle of the entity, independently of the rest - something
-        -- that cannot happen to a single list key, but can happen once
-        -- each chunk is its own string key.
+        -- Simulate the whole body being evicted/tiered away. Unlike a
+        -- per-chunk-key scheme, the body is a single string - one atomic
+        -- Redis value - so this is the only way it can be lost: all or
+        -- nothing, just like the original list design.
         local deleted, err = storage.redis:del(
-            "ledge:entity:{" .. res.entity_id .. "}:body:1"
+            "ledge:entity:{" .. res.entity_id .. "}:body"
         )
-        assert(deleted == 1, "should have deleted the chunk 1 body key")
+        assert(deleted == 1, "should have deleted the body key")
 
         -- get_reader should catch this upfront and refuse to hand back
-        -- an iterator at all, rather than yielding a truncated body that
+        -- an iterator, rather than yielding an empty/short body that
         -- looks like a complete, successful response. This is what lets
         -- the caller (handler.read_from_cache) treat it as a cache miss
         -- and fall back to fetching a fresh copy from the origin.
+        assert(not storage:exists(res.entity_id),
+            "entity should appear gone once the body is lost")
+
         local reader, err = storage:get_reader(res)
         assert(reader == nil,
-            "get_reader should refuse to start when a chunk is missing")
+            "get_reader should refuse to start when the body is missing")
         assert(err, "get_reader should return an error message")
-
-        -- The entity is still otherwise intact (count key untouched), so
-        -- ttl/delete should still succeed rather than erroring out.
-        assert(storage:set_ttl(res.entity_id, 30),
-            "set_ttl should still succeed despite the missing chunk")
-
-        assert(storage:delete(res.entity_id),
-            "delete should still succeed despite the missing chunk")
 
         assert(storage:close(),
             "storage:close should return positively")
@@ -1086,7 +1087,7 @@ redis_notransact OK",
 [error]
 
 
-=== TEST 15b: get_reader errors (not silently truncates) if a chunk is lost mid-stream
+=== TEST 15b: get_reader errors (not silently truncates) if the body is lost mid-stream
 --- http_config eval: $::HttpConfig
 --- config
 location /storage {
@@ -1098,11 +1099,15 @@ location /storage {
         assert(storage:connect(config.params),
             "storage:connect should return positively")
 
+        -- No ESI markup here (has_esi=false throughout) - an entity
+        -- with has_esi=true is always read back in a single call
+        -- regardless of buffer_size (see get_reader()), which would
+        -- short-circuit this test before it ever got to the deleted key.
         local res = _res.new("00015b-" .. backend)
         res.body_reader = get_source({
             { "123", nil, false },
-            { "456", nil, true },
-            { "789", nil, true },
+            { "456", nil, false },
+            { "789", nil, false },
         })
 
         res.body_reader = storage:get_writer(
@@ -1113,24 +1118,24 @@ location /storage {
         sink(res.body_reader)
 
         -- Get a reader while everything is still intact (passes the
-        -- upfront check), then lose a chunk afterwards - simulating the
+        -- upfront check), then lose the body afterwards - simulating the
         -- narrow window between that check and actually reading it,
         -- which streaming can't close off entirely.
         local reader, err = storage:get_reader(res)
         assert(reader, "get_reader should return an iterator")
 
-        local chunk, err, has_esi = reader()
+        local chunk, err, has_esi = reader(3)
         ngx.say(chunk, ":", err, ":", tostring(has_esi))
 
         local deleted, err = storage.redis:del(
-            "ledge:entity:{" .. res.entity_id .. "}:body:1"
+            "ledge:entity:{" .. res.entity_id .. "}:body"
         )
-        assert(deleted == 1, "should have deleted the chunk 1 body key")
+        assert(deleted == 1, "should have deleted the body key")
 
         -- This must come back as a distinguishable error, not as
         -- (nil, nil, nil) - which is indistinguishable from a clean,
         -- successful end of body.
-        local chunk, err, has_esi = reader()
+        local chunk, err, has_esi = reader(3)
         assert(chunk == nil, "chunk should be nil")
         assert(err, "err should be set, not nil, to signal real failure")
 
@@ -1148,14 +1153,14 @@ location /storage {
 --- response_body eval
 [
     "123:nil:false
-456:nil:true
-789:nil:true
+456:nil:false
+789:nil:false
 wrote 9 bytes
 123:nil:false
 redis OK",
     "123:nil:false
-456:nil:true
-789:nil:true
+456:nil:false
+789:nil:false
 wrote 9 bytes
 123:nil:false
 redis_notransact OK",
@@ -1164,7 +1169,7 @@ redis_notransact OK",
 ["entity removed during read"]
 
 
-=== TEST 16: exists/delete/set_ttl degrade gracefully if the count key alone is evicted
+=== TEST 16: exists/get_reader degrade gracefully if only body_esi is evicted
 --- http_config eval: $::HttpConfig
 --- config
 location /storage {
@@ -1191,33 +1196,23 @@ location /storage {
         assert(storage:exists(res.entity_id),
             "entity should exist")
 
-        -- Simulate only the small "count" key being evicted, while the
-        -- (larger) chunk keys it was tracking remain - the count key is
-        -- the sole source of truth for how many chunks there are, so
-        -- losing it makes the rest of the entity unreachable even though
-        -- the bytes are still physically present.
+        -- Simulate only the small has_esi flag key being evicted, while
+        -- the (larger) body key remains - body and body_esi are two
+        -- independent Redis keys, so this residual risk is exactly the
+        -- one the original two-list design always had.
         local deleted, err = storage.redis:del(
-            "ledge:entity:{" .. res.entity_id .. "}:count"
+            "ledge:entity:{" .. res.entity_id .. "}:body_esi"
         )
-        assert(deleted == 1, "should have deleted the count key")
+        assert(deleted == 1, "should have deleted the body_esi key")
 
-        -- None of these should error - they should all treat the entity
-        -- as gone, rather than crashing trying to work out how many
-        -- (now unreachable) chunks it might have had.
+        -- exists() requires both keys, so this should now report false,
+        -- and get_reader() should refuse to start - neither should error.
         assert(not storage:exists(res.entity_id),
-            "entity should appear gone once count is lost")
+            "entity should appear gone once body_esi is lost")
 
         local reader, err = storage:get_reader(res)
         assert(reader == nil and err,
-            "get_reader should cleanly report no chunks, not error")
-
-        local ok, err = storage:set_ttl(res.entity_id, 30)
-        assert(ok == false and err == "entity does not exist",
-            "set_ttl should report the entity as gone, not error")
-
-        local ok, err = storage:delete(res.entity_id)
-        assert(ok == false,
-            "delete should report nothing to delete, not error")
+            "get_reader should cleanly refuse, not error")
 
         assert(storage:close(),
             "storage:close should return positively")
