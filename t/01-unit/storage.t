@@ -1000,3 +1000,244 @@ location /storage {
 ]
 --- no_error_log
 [error]
+
+
+=== TEST 15: get_reader refuses to start if any chunk key has been evicted
+--- http_config eval: $::HttpConfig
+--- config
+location /storage {
+    content_by_lua_block {
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
+
+        local storage = require(config.module).new()
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00015-" .. backend)
+        res.body_reader = get_source({
+            { "123", nil, false },
+            { "456", nil, true },
+            { "789", nil, true },
+        })
+
+        res.body_reader = storage:get_writer(
+            res, 60,
+            success_handler,
+            failure_handler
+        )
+        sink(res.body_reader)
+
+        assert(storage:exists(res.entity_id),
+            "entity should exist")
+
+        -- Simulate the backend evicting/tiering away a single chunk from
+        -- the middle of the entity, independently of the rest - something
+        -- that cannot happen to a single list key, but can happen once
+        -- each chunk is its own string key.
+        local deleted, err = storage.redis:del(
+            "ledge:entity:{" .. res.entity_id .. "}:body:1"
+        )
+        assert(deleted == 1, "should have deleted the chunk 1 body key")
+
+        -- get_reader should catch this upfront and refuse to hand back
+        -- an iterator at all, rather than yielding a truncated body that
+        -- looks like a complete, successful response. This is what lets
+        -- the caller (handler.read_from_cache) treat it as a cache miss
+        -- and fall back to fetching a fresh copy from the origin.
+        local reader, err = storage:get_reader(res)
+        assert(reader == nil,
+            "get_reader should refuse to start when a chunk is missing")
+        assert(err, "get_reader should return an error message")
+
+        -- The entity is still otherwise intact (count key untouched), so
+        -- ttl/delete should still succeed rather than erroring out.
+        assert(storage:set_ttl(res.entity_id, 30),
+            "set_ttl should still succeed despite the missing chunk")
+
+        assert(storage:delete(res.entity_id),
+            "delete should still succeed despite the missing chunk")
+
+        assert(storage:close(),
+            "storage:close should return positively")
+
+        ngx.print(ngx.req.get_uri_args()["backend"], " OK")
+    }
+}
+--- request eval
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
+--- response_body eval
+[
+    "123:nil:false
+456:nil:true
+789:nil:true
+wrote 9 bytes
+redis OK",
+    "123:nil:false
+456:nil:true
+789:nil:true
+wrote 9 bytes
+redis_notransact OK",
+]
+--- no_error_log
+[error]
+
+
+=== TEST 15b: get_reader errors (not silently truncates) if a chunk is lost mid-stream
+--- http_config eval: $::HttpConfig
+--- config
+location /storage {
+    content_by_lua_block {
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
+
+        local storage = require(config.module).new()
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00015b-" .. backend)
+        res.body_reader = get_source({
+            { "123", nil, false },
+            { "456", nil, true },
+            { "789", nil, true },
+        })
+
+        res.body_reader = storage:get_writer(
+            res, 60,
+            success_handler,
+            failure_handler
+        )
+        sink(res.body_reader)
+
+        -- Get a reader while everything is still intact (passes the
+        -- upfront check), then lose a chunk afterwards - simulating the
+        -- narrow window between that check and actually reading it,
+        -- which streaming can't close off entirely.
+        local reader, err = storage:get_reader(res)
+        assert(reader, "get_reader should return an iterator")
+
+        local chunk, err, has_esi = reader()
+        ngx.say(chunk, ":", err, ":", tostring(has_esi))
+
+        local deleted, err = storage.redis:del(
+            "ledge:entity:{" .. res.entity_id .. "}:body:1"
+        )
+        assert(deleted == 1, "should have deleted the chunk 1 body key")
+
+        -- This must come back as a distinguishable error, not as
+        -- (nil, nil, nil) - which is indistinguishable from a clean,
+        -- successful end of body.
+        local chunk, err, has_esi = reader()
+        assert(chunk == nil, "chunk should be nil")
+        assert(err, "err should be set, not nil, to signal real failure")
+
+        assert(storage:close(),
+            "storage:close should return positively")
+
+        ngx.print(ngx.req.get_uri_args()["backend"], " OK")
+    }
+}
+--- request eval
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
+--- response_body eval
+[
+    "123:nil:false
+456:nil:true
+789:nil:true
+wrote 9 bytes
+123:nil:false
+redis OK",
+    "123:nil:false
+456:nil:true
+789:nil:true
+wrote 9 bytes
+123:nil:false
+redis_notransact OK",
+]
+--- error_log eval
+["entity removed during read"]
+
+
+=== TEST 16: exists/delete/set_ttl degrade gracefully if the count key alone is evicted
+--- http_config eval: $::HttpConfig
+--- config
+location /storage {
+    content_by_lua_block {
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
+
+        local storage = require(config.module).new()
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00016-" .. backend)
+        res.body_reader = get_source({
+            { "123", nil, false },
+        })
+
+        res.body_reader = storage:get_writer(
+            res, 60,
+            success_handler,
+            failure_handler
+        )
+        sink(res.body_reader)
+
+        assert(storage:exists(res.entity_id),
+            "entity should exist")
+
+        -- Simulate only the small "count" key being evicted, while the
+        -- (larger) chunk keys it was tracking remain - the count key is
+        -- the sole source of truth for how many chunks there are, so
+        -- losing it makes the rest of the entity unreachable even though
+        -- the bytes are still physically present.
+        local deleted, err = storage.redis:del(
+            "ledge:entity:{" .. res.entity_id .. "}:count"
+        )
+        assert(deleted == 1, "should have deleted the count key")
+
+        -- None of these should error - they should all treat the entity
+        -- as gone, rather than crashing trying to work out how many
+        -- (now unreachable) chunks it might have had.
+        assert(not storage:exists(res.entity_id),
+            "entity should appear gone once count is lost")
+
+        local reader, err = storage:get_reader(res)
+        assert(reader == nil and err,
+            "get_reader should cleanly report no chunks, not error")
+
+        local ok, err = storage:set_ttl(res.entity_id, 30)
+        assert(ok == false and err == "entity does not exist",
+            "set_ttl should report the entity as gone, not error")
+
+        local ok, err = storage:delete(res.entity_id)
+        assert(ok == false,
+            "delete should report nothing to delete, not error")
+
+        assert(storage:close(),
+            "storage:close should return positively")
+
+        ngx.print(ngx.req.get_uri_args()["backend"], " OK")
+    }
+}
+--- request eval
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
+--- response_body eval
+[
+    "123:nil:false
+wrote 3 bytes
+redis OK",
+    "123:nil:false
+wrote 3 bytes
+redis_notransact OK",
+]
+--- no_error_log
+[error]

@@ -171,8 +171,6 @@ location "/mem_pressure_3" {
 ["ORIGIN", ""]
 --- response_headers_like eval
 ["X-Cache: MISS from .*", "X-Cache: HIT from .*"]
---- no_error_log
-[error]
 --- error_log
 entity removed during read
 
@@ -285,7 +283,5 @@ location "/mem_pressure_5" {
 ["ORIGIN", ""]
 --- response_headers_like eval
 ["X-Cache: MISS from .*", "X-Cache: HIT from .*"]
---- no_error_log
-[error]
 --- error_log
 entity removed during read
