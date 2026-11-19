@@ -718,6 +718,7 @@ Must be called during the `init_worker` phase, otherwise background tasks will n
 * [minimum_old_entity_download_rate](#minimum_old_entity_download_rate)
 * [revalidate_backoff_initial](#revalidate_backoff_initial)
 * [revalidate_backoff_max](#revalidate_backoff_max)
+* [dedup_job_waiting_ttl](#dedup_job_waiting_ttl)
 * [esi_enabled](#esi_enabled)
 * [esi_content_types](#esi_content_types)
 * [esi_allow_surrogate_delegation](#esi_allow_surrogate_delegation)
@@ -965,6 +966,19 @@ The backoff state is cleared as soon as a revalidation succeeds.
 default: `300 (sec)`
 
 The cap on [revalidate_backoff_initial](#revalidate_backoff_initial)'s exponential backoff, so a persistently failing origin doesn't end up with an unbounded wait between revalidation attempts.
+
+[Back to TOC](#handler-configuration-options)
+
+
+#### dedup_job_waiting_ttl
+
+default: `300 (sec)`
+
+How long a de-duplicated background job (revalidation and purge jobs, which have one job ID per URI) can wait in the queue before its job record expires.
+
+A job record and its queue entry are separate keys. A store that evicts keys under memory pressure (e.g. DragonflyDB in `cache_mode`) can drop the queue entry and keep the record. New jobs for that URI then get merged into the orphaned record and never run. This setting caps how long that can last, i.e. how long a `stale-while-revalidate` page can go without revalidating. Set it well above your normal revalidate/purge queue latency, because a job still waiting when its record expires is dropped. (A revalidation is queued again on the next stale hit.)
+
+Other background jobs (garbage collection) use a fixed 3600 second waiting TTL, plus any delay.
 
 [Back to TOC](#handler-configuration-options)
 

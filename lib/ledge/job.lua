@@ -61,6 +61,17 @@ local function heartbeat(self)
     end
 
     self.expires_at = new_expires_at
+
+    -- Keep the job record alive alongside the lease (see job_queue).
+    local ok, err = job_queue.extend_running(
+        self._jobs_redis, self.jid, new_expires_at
+    )
+    if not ok or ok == ngx_null then
+        return nil, err
+    elseif ok == 0 then
+        return nil, "job record no longer exists; it may have been evicted"
+    end
+
     return self.expires_at
 end
 _M.heartbeat = heartbeat

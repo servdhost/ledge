@@ -665,6 +665,7 @@ local function revalidate_in_background(self, key_chain, update_revalidation_dat
         },
         {
             jid = ngx_md5("revalidate:" .. uri),
+            ttl = self.config.dedup_job_waiting_ttl,
             tags = { "revalidate" },
             priority = 4,
         }
@@ -691,6 +692,7 @@ local function fetch_in_background(self)
         },
         {
             jid = ngx_md5("revalidate:" .. req_full_uri()),
+            ttl = self.config.dedup_job_waiting_ttl,
             tags = { "revalidate" },
             priority = 4,
         }

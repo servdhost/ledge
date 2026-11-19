@@ -118,3 +118,77 @@ complete
 --- timeout: 5
 --- no_error_log
 [error]
+
+
+=== TEST 7: Job records always carry a TTL, and orphaned waiting jobs self-heal
+--- http_config eval: $::HttpConfig
+--- config
+location /worker_7 {
+    content_by_lua_block {
+        local job_queue = require("ledge.job_queue")
+        local redis = assert(require("ledge").create_jobs_connection())
+        redis:flushdb()
+
+        local q = "ledge_revalidate"
+        local jid = "orphan_test"
+        local key = job_queue.job_key(jid)
+
+        -- Waiting job gets the requested TTL
+        assert(job_queue.put(redis, q, "ledge.job.test", {}, { jid = jid, ttl = 30 }))
+        local ttl = redis:ttl(key)
+        ngx.say("waiting ttl ok: ", ttl > 0 and ttl <= 30)
+
+        -- Delayed job's TTL covers its delay
+        assert(job_queue.put(redis, q, "ledge.job.test", {}, { ttl = 30, delay = 100 }))
+
+        -- Simulate eviction of the ready list, leaving an orphaned record
+        redis:del(job_queue.ready_key(q))
+
+        -- Coalescing put must not extend the orphan's TTL
+        redis:expire(key, 5)
+        assert(job_queue.put(redis, q, "ledge.job.test", {}, { jid = jid, ttl = 30 }))
+        ttl = redis:ttl(key)
+        ngx.say("coalesce does not extend: ", ttl > 0 and ttl <= 5)
+
+        -- Once the orphan expires, the next put re-queues the job
+        redis:del(key)
+        assert(job_queue.put(redis, q, "ledge.job.test", {}, { jid = jid, ttl = 30 }))
+        ngx.say("requeued: ", job_queue.pop_ready(redis, q))
+
+        -- Legacy record with no TTL gets one on the next put
+        redis:persist(key)
+        assert(job_queue.put(redis, q, "ledge.job.test", {}, { jid = jid, ttl = 30 }))
+        ttl = redis:ttl(key)
+        ngx.say("legacy gets ttl: ", ttl > 0 and ttl <= 30)
+
+        -- Running record's TTL tracks its lease
+        assert(job_queue.mark_running(redis, q, jid, ngx.time() + 10))
+        ttl = redis:ttl(key)
+        ngx.say("running ttl ok: ", ttl > 10 and ttl <= 10 + job_queue.running_ttl_grace)
+
+        -- Reaped job goes back to waiting with its waiting TTL
+        redis:zadd(job_queue.running_key(q), ngx.time() - 1, jid)
+        local reclaimed = job_queue.reap(redis, q, ngx.time(), 100)
+        ngx.say("reaped: ", reclaimed[1])
+        ngx.say("state: ", (redis:hget(key, "state")))
+        ttl = redis:ttl(key)
+        ngx.say("reaped ttl ok: ", ttl > 0 and ttl <= 30)
+
+        -- Don't leave queued test jobs for later tests' workers
+        redis:flushdb()
+        require("ledge").close_redis_connection(redis)
+    }
+}
+--- request
+GET /worker_7
+--- response_body
+waiting ttl ok: true
+coalesce does not extend: true
+requeued: orphan_test
+legacy gets ttl: true
+running ttl ok: true
+reaped: orphan_test
+state: waiting
+reaped ttl ok: true
+--- no_error_log
+[error]

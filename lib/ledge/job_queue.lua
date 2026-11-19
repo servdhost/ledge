@@ -1,4 +1,4 @@
-local tostring, tonumber = tostring, tonumber
+local tostring, tonumber, ipairs = tostring, tonumber, ipairs
 
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
@@ -47,6 +47,31 @@ local failed_key = "ledge:jobs:failed"
 _M.failed_key = failed_key
 
 
+-- Job records are never left without a TTL. A record and its queue entry
+-- (the ready list / delayed zset / running zset) are separate keys, and
+-- under memory pressure an evicting store (e.g. Dragonfly in cache_mode)
+-- can drop one without the other. A record orphaned in "waiting" or
+-- "running" state would otherwise live forever, and since put() de-dupes
+-- on the record's state, every future put for that jid would be silently
+-- swallowed - e.g. a stale-while-revalidate page that never refreshes.
+-- Bounding every record's lifetime means an orphan clears itself and the
+-- next put re-queues the job properly.
+
+-- How long (sec) a job may sit waiting (queued, or after its delay) before
+-- its record expires. Callers can override per job with options.ttl.
+_M.default_waiting_ttl = 3600
+
+-- Extra time (sec) a running job's record outlives its lease, so the
+-- reaper has a chance to reclaim it before the record expires.
+_M.running_ttl_grace = 60
+
+
+local function record_ttl(redis, jid)
+    local ttl = tonumber(redis:hget(job_key(jid), "ttl"))
+    return ttl or _M.default_waiting_ttl
+end
+
+
 -- Fetches and decodes a job record hash. Returns nil if it doesn't exist.
 local function get(redis, jid)
     local res, err = redis:hgetall(job_key(jid))
@@ -60,6 +85,7 @@ local function get(redis, jid)
     if record.tags then record.tags = cjson_decode(record.tags) end
     record.priority = tonumber(record.priority)
     record.attempts = tonumber(record.attempts) or 0
+    record.ttl = tonumber(record.ttl)
 
     return record
 end
@@ -72,14 +98,31 @@ _M.get = get
 -- concurrent duplicate purges/revalidations of the same resource coalesce
 -- into a single pending job. If the existing job is "running", the put is
 -- dropped. Returns { jid, klass, options } on success, or nil, err.
+--
+-- options.ttl bounds how long (sec) the job may wait to be picked up after
+-- it becomes due before its record expires (default: default_waiting_ttl).
+-- Coalescing into an existing job deliberately does NOT extend its TTL:
+-- if that job was orphaned by eviction, extending it on every put would
+-- keep the orphan (and the de-dupe that swallows new puts) alive forever.
 local function put(redis, queue, klass, data, options)
     options = options or {}
     local jid = options.jid or randomhex(24)
+    local ttl = tonumber(options.ttl) or _M.default_waiting_ttl
 
     if options.jid then
         local existing_state, err = redis:hget(job_key(jid), "state")
         if not existing_state or existing_state == ngx_null then
             existing_state = nil
+        end
+
+        -- Records written before TTLs were introduced may have none, and
+        -- may be exactly the orphans this guards against. Give them one so
+        -- they clear themselves too.
+        if existing_state == "running" or existing_state == "waiting" then
+            local key_ttl = redis:ttl(job_key(jid))
+            if key_ttl == -1 then
+                redis:expire(job_key(jid), ttl)
+            end
         end
 
         if existing_state == "running" then
@@ -101,11 +144,6 @@ local function put(redis, queue, klass, data, options)
     local ok, err = redis:multi()
     if not ok then return nil, err end
 
-    -- Clear any TTL left over from a previous job that used this same jid
-    -- (set by complete()/fail_or_retry()), otherwise this freshly (re)queued
-    -- job can expire out from under itself before a worker gets to it.
-    redis:persist(job_key(jid))
-
     redis:hmset(job_key(jid),
         "queue", queue,
         "klass", klass,
@@ -114,13 +152,19 @@ local function put(redis, queue, klass, data, options)
         "priority", options.priority or 0,
         "attempts", 0,
         "state", "waiting",
-        "created", ngx_time()
+        "created", ngx_time(),
+        "ttl", ttl
     )
 
+    -- Replaces any TTL left over from a previous job that used this same
+    -- jid (set by complete()/fail_or_retry()). A delayed job's record must
+    -- also survive its delay.
     local delay = tonumber(options.delay)
     if delay and delay > 0 then
+        redis:expire(job_key(jid), delay + ttl)
         redis:zadd(delayed_key(queue), ngx_time() + delay, jid)
     else
+        redis:expire(job_key(jid), ttl)
         redis:rpush(ready_key(queue), jid)
     end
 
@@ -146,14 +190,27 @@ _M.pop_ready = pop_ready
 
 
 -- Marks a job as running and creates its lease in the running zset, so the
--- reaper can reclaim it if this worker dies before completing it.
+-- reaper can reclaim it if this worker dies before completing it. The
+-- record's TTL tracks the lease (plus grace), so if the lease entry is
+-- evicted and the worker dies, the record doesn't stay "running" forever.
 local function mark_running(redis, queue, jid, expires_at)
+    local record_expiry = (expires_at - ngx_time()) + _M.running_ttl_grace
     redis:multi()
     redis:hset(job_key(jid), "state", "running")
+    redis:expire(job_key(jid), record_expiry)
     redis:zadd(running_key(queue), expires_at, jid)
     return redis:exec()
 end
 _M.mark_running = mark_running
+
+
+-- Extends a running job's record TTL alongside its lease. Called from
+-- ledge.job's heartbeat() once the lease itself has been extended.
+local function extend_running(redis, jid, expires_at)
+    local record_expiry = (expires_at - ngx_time()) + _M.running_ttl_grace
+    return redis:expire(job_key(jid), record_expiry)
+end
+_M.extend_running = extend_running
 
 
 -- Marks a job complete. The record is kept briefly for post-hoc
@@ -177,11 +234,14 @@ local function fail_or_retry(redis, queue, jid, message, max_retries)
         attempts = (max_retries or 0) + 1 -- give up rather than retry forever
     end
 
+    local ttl = record_ttl(redis, jid)
+
     redis:multi()
     redis:zrem(running_key(queue), jid)
 
     if attempts <= (max_retries or 0) then
         redis:hset(job_key(jid), "state", "waiting")
+        redis:expire(job_key(jid), ttl)
         redis:rpush(ready_key(queue), jid)
     else
         redis:hset(job_key(jid), "state", "failed")
@@ -247,11 +307,31 @@ return reclaimed
 ]]
 
 local function reap(redis, queue, now, limit)
-    return redis:eval(
+    local reclaimed, err = redis:eval(
         reap_script, 2,
         running_key(queue), ready_key(queue),
         now, limit or 100
     )
+    if not reclaimed or reclaimed == ngx_null then
+        return nil, err
+    end
+
+    -- Reclaimed jobs are waiting again: reset their state and give their
+    -- records a waiting TTL, otherwise the (shorter) running TTL could
+    -- expire them before a worker gets to them. Done outside the script
+    -- because Dragonfly rejects scripts touching undeclared keys by default.
+    for _, jid in ipairs(reclaimed) do
+        local key = job_key(jid)
+        if redis:exists(key) == 1 then
+            local ttl = record_ttl(redis, jid)
+            redis:multi()
+            redis:hset(key, "state", "waiting")
+            redis:expire(key, ttl)
+            redis:exec()
+        end
+    end
+
+    return reclaimed
 end
 _M.reap = reap
 

@@ -1,5 +1,5 @@
-local pcall, tonumber, tostring, pairs =
-    pcall, tonumber, tostring, pairs
+local pcall, tonumber, tostring, pairs, type =
+    pcall, tonumber, tostring, pairs, type
 
 local tbl_insert = table.insert
 
@@ -37,7 +37,15 @@ local function create_purge_response(purge_mode, result, background_jobs)
         purge_mode = purge_mode,
         result = result,
     }
-    if background_jobs then d.background_jobs = background_jobs end
+    if background_jobs then
+        -- ttl is an internal queueing detail; keep it out of the purge API.
+        for _, job in pairs(background_jobs) do
+            if type(job) == "table" and type(job.options) == "table" then
+                job.options.ttl = nil
+            end
+        end
+        d.background_jobs = background_jobs
+    end
 
     local ok, json = pcall(cjson_encode, d)
 
@@ -231,6 +239,7 @@ local function purge_in_background(handler, purge_mode)
         },
         {
             jid = ngx_md5("purge:" .. tostring(key_chain.root)),
+            ttl = handler.config.dedup_job_waiting_ttl,
             tags = { "purge" },
             priority = 5,
         }

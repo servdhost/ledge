@@ -81,6 +81,14 @@ local handler_defaults = setmetatable({
     revalidate_backoff_initial = 5,    -- (sec)
     revalidate_backoff_max = 300,      -- (sec)
 
+    -- How long a de-duplicated background job (revalidate / purge, whose
+    -- jid is derived from the URI) may sit queued before its record
+    -- expires. If the job's queue entry is evicted (e.g. Dragonfly under
+    -- memory pressure), this bounds how long new puts for the same URI are
+    -- swallowed by the orphaned record - i.e. how long a stale page can go
+    -- without revalidating. Should comfortably exceed normal queue latency.
+    dedup_job_waiting_ttl = 300,       -- (sec)
+
     esi_enabled = false,
     esi_content_types = { "text/html" },
     esi_allow_surrogate_delegation = false,
